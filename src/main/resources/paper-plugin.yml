@@ -1,0 +1,32 @@
+name: inmc-achievements
+version: '${version}'
+main: com.inmc.achievements.AchievementsPlugin
+api-version: '${apiVersion}'   # build.gradle.kts 의 inmc { paper } 에서 유도됨
+description: 단계·체인·히든·연출을 갖춘 업적 플러그인. InMC 전 플러그인과 신호로 연동됩니다.
+authors: [ INMC ]
+
+# 연동은 전부 load: OMIT 이다. BEFORE 를 걸면 Paper 가 의존성 순환을 보고 우리 간선을
+# 조용히 끊는다 (가이드 함정 1).
+#
+# 몬스터·타이틀포지를 적어두는 이유는 순서가 아니라 **`join-classpath`** 다. 그쪽 이벤트
+# 클래스를 이름으로 찾아 구독하는데(ForeignEventBridge), 클래스패스를 합치지 않으면
+# Class.forName 이 못 찾고 **조용히 구독하지 않는다.** OMIT 이라 켜지는 순서는 정하지 않지만
+# Paper 는 모든 플러그인을 먼저 적재한 뒤 켜므로 어느 쪽이 먼저 켜져도 클래스는 보인다.
+# 이름은 각 플러그인 paper-plugin.yml 의 name 과 글자 단위로 같아야 한다.
+dependencies:
+  server:
+    # 필수 의존은 이것 하나뿐. core 가 kotlin-stdlib 과 공용 프레임워크를 들고 있다.
+    inmc-core:        { load: BEFORE, required: true,  join-classpath: true }
+    Vault:            { load: OMIT,   required: false, join-classpath: true }
+    LuckPerms:        { load: OMIT,   required: false, join-classpath: true }
+    InMc-TitleForge:  { load: OMIT,   required: false, join-classpath: true }
+    inmc-monster:     { load: OMIT,   required: false, join-classpath: true }
+    inmc-fishing:     { load: OMIT,   required: false, join-classpath: true }
+    inmc-urb:         { load: OMIT,   required: false, join-classpath: true }
+    inmc-invkeeper:   { load: OMIT,   required: false, join-classpath: true }
+
+# commands 절은 paper-plugin.yml 에 없다 - Brigadier 로 등록한다.
+permissions:
+  inachievements.admin:
+    description: 업적 관리 권한 전체
+    default: op

@@ -1,0 +1,177 @@
+# ============================================================
+#  inmc-achievements — 업적 정의
+# ============================================================
+# **손으로 고치는 것보다 `/업적 관리` 화면을 쓰세요.**
+#
+# 특히 `uid` 는 절대 손대지 마세요. 그 값이 플레이어 기록이 가리키는 열쇠입니다 —
+# 바꾸면 그 업적의 기록이 통째로 고아가 되고, 지우면 다음 시작에 새로 생겨 같은 일이
+# 벌어집니다. `id`(아래 항목 이름)는 얼마든지 바꿔도 됩니다.
+#
+# ── 조건 네 갈래 ───────────────────────────────────────────
+#  STATISTIC  마인크래프트가 이미 세는 것. 리스너 0개, **소급 적용**.
+#             단 접속 중에만 갱신됩니다.
+#  SIGNAL     다른 InMC 플러그인의 사건. 그 플러그인이 켜져 있어야 목록에 나옵니다.
+#  STATE      참/거짓. 권한 그룹·지역·선행 업적. **단계를 가질 수 없습니다.**
+#  CUSTOM     외부 플러그인이 API 로 등록한 조건.
+#
+# ── 단계 ──────────────────────────────────────────────────
+#  `tiers` 의 이름(t1, t2 …)은 **지우고 다시 쓰지 마세요.** 기록이 그 이름을 가리킵니다.
+#  임계값은 반드시 순증가여야 합니다 — 어긋나면 그 업적을 읽지 않고 로그에 남깁니다.
+
+achievements:
+
+  # ── 길라잡이 ────────────────────────────────────────────
+  # `next` 는 **표시 순서일 뿐 해금하지 않습니다.** 선행 조건이 필요하면
+  # condition 에 STATE/ACHIEVEMENT 를, 자동 공개가 필요하면 discovery 를 쓰세요.
+
+  첫벌목:
+    uid: a1000000guide
+    display: '첫 벌목'
+    description: [ '나무를 한 번 베어 보세요.' ]
+    icon: OAK_LOG
+    category: GUIDE
+    condition: { kind: STATISTIC, statistic: MINE_BLOCK, material: OAK_LOG }
+    goal: 1
+    next: a1000001guide
+    reward: { threshold: 1, points: 1 }
+    celebration: { scope: SELF, toast: true, sound: ENTITY_EXPERIENCE_ORB_PICKUP }
+
+  첫제작:
+    uid: a1000001guide
+    display: '첫 제작'
+    description: [ '제작대를 만들어 보세요.' ]
+    icon: CRAFTING_TABLE
+    category: GUIDE
+    condition: { kind: STATISTIC, statistic: CRAFT_ITEM, material: CRAFTING_TABLE }
+    goal: 1
+    next: a1000002guide
+    reward: { threshold: 1, points: 1 }
+    celebration: { scope: SELF, toast: true, sound: ENTITY_EXPERIENCE_ORB_PICKUP }
+
+  첫전투:
+    uid: a1000002guide
+    display: '첫 전투'
+    description: [ '몬스터를 한 마리 처치해 보세요.' ]
+    icon: IRON_SWORD
+    category: GUIDE
+    condition: { kind: STATISTIC, statistic: MOB_KILLS }
+    goal: 1
+    next: a1000003guide
+    reward: { threshold: 1, points: 1 }
+    celebration: { scope: SELF, toast: true, sound: ENTITY_EXPERIENCE_ORB_PICKUP }
+
+  첫탐험:
+    uid: a1000003guide
+    display: '첫 탐험'
+    description: [ '1,000 블록을 걸어 보세요.' ]
+    icon: MAP
+    category: GUIDE
+    # WALK_ONE_CM 은 cm 단위입니다. 1,000블록 = 100,000.
+    condition: { kind: STATISTIC, statistic: WALK_ONE_CM }
+    goal: 100000
+    next: a1000004guide
+    reward: { threshold: 100000, points: 2 }
+    celebration: { scope: SELF, toast: true, sound: ENTITY_EXPERIENCE_ORB_PICKUP }
+
+  첫낚시:
+    uid: a1000004guide
+    display: '첫 낚시'
+    description: [ '물고기를 한 마리 낚아 보세요.' ]
+    icon: FISHING_ROD
+    category: GUIDE
+    condition: { kind: STATISTIC, statistic: FISH_CAUGHT }
+    goal: 1
+    next: a1000005guide
+    reward: { threshold: 1, points: 2 }
+    celebration: { scope: SELF, toast: true, sound: ENTITY_EXPERIENCE_ORB_PICKUP }
+
+  첫던전:
+    uid: a1000005guide
+    display: '첫 던전'
+    description: [ '던전을 한 번 돌파해 보세요.' ]
+    icon: NETHER_STAR
+    category: GUIDE
+    # 커스텀 조건의 예시입니다. 던전 플러그인이 AchievementsApi 로 'dungeon_clear' 를
+    # 등록하기 전까지 이 업적은 **'모름' 으로 남습니다** — 0 으로 치지 않으므로
+    # 조용히 미완료가 되지 않고, 관리 화면에 빨갛게 표시됩니다.
+    condition: { kind: CUSTOM, custom: dungeon_clear }
+    goal: 1
+    reward: { threshold: 1, points: 5 }
+    celebration: { scope: SELF, toast: true, sound: UI_TOAST_CHALLENGE_COMPLETE }
+
+  # ── 단계형 ─────────────────────────────────────────────
+  # 업적 **하나**가 단계 셋을 갖습니다. 업적 세 개로 나누면 같은 신호에 카운터 셋이
+  # 각자 늘어나 한 번만 저장을 놓쳐도 서로 어긋납니다.
+
+  나무꾼:
+    uid: b1000000wood
+    display: '나무꾼'
+    description: [ '참나무를 베어 모으세요.' ]
+    icon: IRON_AXE
+    category: GATHER
+    condition: { kind: STATISTIC, statistic: MINE_BLOCK, material: OAK_LOG }
+    tiers:
+      t1: { threshold: 100, label: '나무꾼 I', points: 3 }
+      t2: { threshold: 1000, label: '나무꾼 II', points: 8 }
+      t3:
+        threshold: 10000
+        label: '나무꾼 III'
+        points: 20
+        # 최고 단계만 요란하게. 여러 단계를 한 번에 넘어도 연출은 **최고 단계 하나**입니다.
+        celebration:
+          scope: SERVER
+          toast: true
+          title: '<gold>나무꾼 III</gold>'
+          firework: true
+          broadcast: '<gold>{플레이어} 님이 참나무 10,000개를 베었습니다!</gold>'
+    celebration: { scope: SELF, toast: true }
+
+  # ── 신호 연동 ───────────────────────────────────────────
+  # 낚시 플러그인이 켜져 있어야 `/업적 관리` 에서 물고기 목록이 나옵니다.
+  # 꺼져 있으면 이 업적은 진행하지 않을 뿐, 설정은 그대로 남습니다.
+
+  낚시꾼:
+    uid: c1000000fish
+    display: '낚시꾼'
+    description: [ '물고기를 잡아 모으세요.' ]
+    icon: COD
+    category: FISHING
+    # subject 를 비우면 그 사건 **전부**를 셉니다.
+    condition: { kind: SIGNAL, source: fishing, type: catch }
+    tiers:
+      t1: { threshold: 50, label: '낚시꾼 I', points: 3 }
+      t2: { threshold: 500, label: '낚시꾼 II', points: 10 }
+    celebration: { scope: SELF, toast: true }
+
+  # ── 히든 ───────────────────────────────────────────────
+  # 발견하기 전에는 이름·설명·조건이 전부 감춰집니다. 다만 **진행도는 그 전에도 쌓입니다** —
+  # 그래서 나중에 발견하면 이미 한 만큼이 그대로 반영됩니다.
+
+  숨은샘:
+    uid: d1000000secret
+    display: '숨은 샘'
+    description: [ '아무도 모르는 곳을 찾았습니다.' ]
+    icon: HEART_OF_THE_SEA
+    category: EVENT
+    hidden: true
+    # 전체 달성률 분모에서 뺍니다. 점수는 그대로 줍니다 — 그래서 '100% 달성' 과
+    # '최대 점수' 가 다를 수 있고, 화면에 그렇게 적혀 있습니다.
+    counts-toward-total: false
+    discovery:
+      kind: REGION
+      value: 비밀샘
+      # 발견하는 순간 달성됩니다. 단계가 있는 업적에는 쓸 수 없습니다.
+      complete-on-discover: true
+    reward:
+      threshold: 1
+      points: 15
+      first-clear:
+        celebration:
+          scope: SERVER
+          broadcast: '<light_purple>{플레이어} 님이 숨은 샘을 처음으로 발견했습니다!</light_purple>'
+    celebration:
+      scope: SELF
+      toast: true
+      title: '<light_purple>숨은 샘</light_purple>'
+      sound: BLOCK_BEACON_ACTIVATE
+      particle: END_ROD

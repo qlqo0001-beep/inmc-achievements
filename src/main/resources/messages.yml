@@ -1,0 +1,62 @@
+# ============================================================
+#  inmc-achievements — 메시지
+# ============================================================
+# MiniMessage 표기를 씁니다: <red>빨강</red>, <gradient:#a:#b>…</gradient>
+# 예전 색코드(&c, §c)도 그대로 읽히니 급하면 섞어 써도 됩니다.
+#
+# 줄을 통째로 지우면 내장 기본값이 나갑니다. 빈 문자열("")로 두면 그 메시지를 끕니다.
+#
+# 토큰은 한글/영문 둘 다 됩니다 — {업적} = {achievement}, {진행도} = {count},
+# {점수} = {points}, {랭크} = {rank} …
+#
+# ⚠ 이 파일의 키 목록은 코드의 기본값 표와 **정확히 일치해야** 합니다.
+#    ResourceTest 가 그걸 지킵니다.
+prefix: '<gradient:#ffd479:#ffb347>[ 업적 ]</gradient> '
+
+# 달성 
+unlocked: '<gold>업적 달성!</gold> <white>{업적}</white>'
+unlocked-tier: '<gold>업적 달성!</gold> <white>{업적} {단계}</white>'
+broadcast: '<yellow>{플레이어}</yellow> <gray>님이</gray> <white>{업적}</white> <gray>업적을 달성했습니다.</gray>'
+first-clear: '<gold>서버 최초!</gold> <yellow>{플레이어}</yellow> <gray>님이</gray> <white>{업적}</white> <gray>을(를) 처음으로 달성했습니다.</gray>'
+discovered: '<light_purple>숨겨진 업적을 발견했습니다:</light_purple> <white>{업적}</white>'
+points-gained: '<gray>업적 점수 <yellow>+{점수}</yellow></gray>'
+rank-up: '<gold>업적 랭크가 올랐습니다:</gold> <white>{랭크}</white>'
+
+# 보상 
+reward-mailed: '<yellow>보상을 우편함에 보관했습니다. /업적 우편함 으로 받으세요.</yellow>'
+reward-deferred: '<gray>접속 후 지급되는 보상이 있어 지금 처리했습니다.</gray>'
+reward-failed: '<red>보상을 지급하지 못했습니다: {사유}</red>'
+
+# 조회 
+progress: '<white>{업적}</white> <gray>—</gray> <yellow>{진행도}</yellow><gray>/{목표}</gray> <gray>({달성률}%)</gray>'
+not-found: '<red>그런 업적이 없습니다.</red>'
+not-discovered: '<dark_gray>??? — 아직 발견하지 못한 업적입니다.</dark_gray>'
+stats-header: '<gold>{플레이어} 님의 업적</gold>'
+stats-line: '<gray>{분류}: <white>{진행도}</white>/{목표} <dark_gray>({달성률}%)</dark_gray></gray>'
+stats-points: '<gray>업적 점수: <yellow>{점수}</yellow> <dark_gray>(랭크 {랭크})</dark_gray></gray>'
+
+# 관리 
+admin-created: '<green>업적 ''{업적}'' 을(를) 만들었습니다.</green>'
+admin-deleted: '<yellow>업적 ''{업적}'' 을(를) 지웠습니다.</yellow>'
+admin-delete-blocked: '<red>''{업적}'' 을(를) 가리키는 업적이 있어 지울 수 없습니다: {사유}</red>'
+admin-exists: '<red>''{업적}'' 은(는) 이미 있습니다.</red>'
+admin-invalid-id: '<red>이름이 올바르지 않습니다. {사유}</red>'
+admin-granted: '<green>{플레이어} 님에게 ''{업적}'' 을(를) 지급했습니다.</green>'
+admin-revoked: '<yellow>{플레이어} 님의 ''{업적}'' 기록을 지웠습니다.</yellow>'
+admin-reloaded: '<green>설정을 다시 읽었습니다. (업적 {진행도}개)</green>'
+admin-unpaid: '<yellow>지급 여부가 확인되지 않은 항목 {진행도}건이 있습니다.</yellow>'
+admin-unpaid-none: '<green>확인이 필요한 미지급 항목이 없습니다.</green>'
+admin-rebuilding: '<gray>정의가 바뀌어 기록을 다시 계산하고 있습니다...</gray>'
+admin-rebuilt: '<green>기록 재계산을 마쳤습니다. (플레이어 {진행도}명)</green>'
+
+# 공통 
+no-permission: '<red>권한이 없습니다.</red>'
+player-only: '<red>게임 안에서만 쓸 수 있습니다.</red>'
+player-not-found: '<red>그런 플레이어를 찾을 수 없습니다.</red>'
+not-ready: '<red>아직 준비 중입니다. 잠시 후 다시 시도해주세요.</red>'
+
+# core ChatPrompt 가 요구하는 네 키. 없으면 프롬프트가 조용히 무음이 된다 
+prompt-enter: '<yellow>채팅에 값을 입력하세요. <gray>(취소: 취소)</gray></yellow>'
+prompt-cancelled: '<gray>입력을 취소했습니다.</gray>'
+prompt-timeout: '<gray>입력 시간이 지났습니다.</gray>'
+prompt-invalid-number: '<red>숫자로 입력해주세요.</red>'
