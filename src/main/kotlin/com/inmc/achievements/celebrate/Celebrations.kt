@@ -37,7 +37,7 @@ class Celebrations(private val ach: Achievements) {
 
         val ph = ach.ph()
             .achievement(snapshot.achievementName)
-            .player(player?.name ?: nameOf(snapshot))
+            .player(player?.let { kr.inmc.core.integration.TitleForgeNames.displayName(it.uniqueId, it.name) } ?: nameOf(snapshot))
             .tier(snapshot.tierName)
 
         if (celebration.broadcast.isNotBlank()) {
@@ -50,7 +50,7 @@ class Celebrations(private val ach: Achievements) {
         val celebration = snapshot.firstClearCelebration
         val ph = ach.ph()
             .achievement(snapshot.achievementName)
-            .player(player?.name ?: nameOf(snapshot))
+            .player(player?.let { kr.inmc.core.integration.TitleForgeNames.displayName(it.uniqueId, it.name) } ?: nameOf(snapshot))
             .tier(snapshot.tierName)
 
         if (celebration == null) {
@@ -72,7 +72,7 @@ class Celebrations(private val ach: Achievements) {
         val ph = ach.ph()
             .achievement(snapshot.achievementName)
             .tier(snapshot.tierName)
-            .player(player.name)
+            .player(kr.inmc.core.integration.TitleForgeNames.displayName(player.uniqueId, player.name))
 
         if (celebration.title.isNotBlank() || celebration.subtitle.isNotBlank()) {
             player.showTitle(
