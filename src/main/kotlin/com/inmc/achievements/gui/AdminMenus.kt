@@ -58,6 +58,10 @@ class AdminListMenu(
             RegionListMenu(ach, viewer).open(viewer)
         }
 
+        set(SLOT_HUB, Icon.of(Material.COMPASS, "<gold>어드민 메뉴로</gold>", "<gray>각 플러그인 설정 허브로 돌아갑니다.</gray>")) {
+            viewer.performCommand("메뉴 어드민")
+        }
+
         val pages = Paging.pageCount(items.size)
         if (page > 0) set(Paging.SLOT_PREV, Icon.prevPage()) { page--; refresh() }
         if (page < pages - 1) set(Paging.SLOT_NEXT, Icon.nextPage()) { page++; refresh() }
@@ -166,6 +170,7 @@ class AdminListMenu(
         const val SLOT_CREATE = 45
         const val SLOT_CATEGORY = 48
         const val SLOT_REGIONS = 49
+        const val SLOT_HUB = 52
         val CATEGORIES: List<Category?> = listOf(null) + Category.entries
     }
 }
