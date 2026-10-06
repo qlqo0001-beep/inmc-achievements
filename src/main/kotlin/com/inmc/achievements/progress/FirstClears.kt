@@ -66,6 +66,26 @@ class FirstClears(private val io: ConfigService, private val logger: Logger) {
         if (records.keys.removeIf { it.startsWith(prefix) }) write()
     }
 
+    /**
+     * 이 사람의 서버 최초 기록을 푼다. 관리자 초기화용 — 푼 개수를 돌려준다.
+     *
+     * uid 가 null 이면 그 사람 전체. 최초 타이틀을 잃은 자리는 다음 달성자가 차지한다.
+     */
+    fun release(playerId: UUID, uid: String?): Int {
+        val prefix = if (uid != null) "$uid/" else null
+        var released = 0
+        val iterator = records.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if ((prefix == null || entry.key.startsWith(prefix)) && entry.value.playerId == playerId) {
+                iterator.remove()
+                released++
+            }
+        }
+        if (released > 0) write()
+        return released
+    }
+
     // --- 영속화 -------------------------------------------------------------------
 
     fun load(then: () -> Unit) {

@@ -230,6 +230,35 @@ class AchievementCounters {
         touched.remove(playerId)
     }
 
+    /**
+     * 진행도·발견 표시를 지운다. 관리자 초기화용 — 지운 업적 수를 돌려준다.
+     *
+     * 메모리와 공유 저장소를 **둘 다** 지운다. 메모리만 지우면 다음 `syncTo` 가 아니라
+     * 그 반대다 — `syncTo` 는 메모리에 있는 것만 쓰므로 지운 것은 다시 안 올라간다.
+     * 저장소만 지우면 메모리가 다음 동기화에 되살린다. uid 가 null 이면 그 사람 전체.
+     *
+     * 빈 항목을 만들지 않는다 — 없는 사람을 `computeIfAbsent` 로 만들면 빈 껍데기가
+     * 저장된 진행도를 덮어쓴다(클래스 머리말의 경고).
+     */
+    fun clear(playerId: UUID, uid: String?, store: PlayerStore): Int {
+        val memory = players[playerId]
+        var removed: Int
+        if (uid != null) {
+            removed = if (memory?.remove(uid) != null) 1 else 0
+            if (store.subjects(playerId, NAMESPACE).contains(uid)) {
+                store.clearSubject(playerId, NAMESPACE, uid)
+                removed = 1
+            }
+        } else {
+            val storeSubjects = store.subjects(playerId, NAMESPACE)
+            removed = (memory?.keys?.toSet().orEmpty() + storeSubjects).size
+            players.remove(playerId)
+            store.clear(playerId, NAMESPACE)
+            touched.remove(playerId)
+        }
+        return removed
+    }
+
     fun clear() {
         players.clear()
         touched.clear()
