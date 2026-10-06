@@ -153,6 +153,25 @@ class AchievementCommand(private val ach: Achievements) {
                             ),
                     ),
             )
+            .then(
+                Commands.literal("초기화")
+                    .then(
+                        Commands.argument("대상", StringArgumentType.word())
+                            .suggests(players)
+                            .executes { context -> reset(context.source.sender, context, null) }
+                            .then(
+                                Commands.argument("업적", StringArgumentType.greedyString())
+                                    .suggests(achievementIds)
+                                    .executes { context ->
+                                        reset(
+                                            context.source.sender,
+                                            context,
+                                            StringArgumentType.getString(context, "업적"),
+                                        )
+                                    },
+                            ),
+                    ),
+            )
 
     // --- 동작 -----------------------------------------------------------------------
 
@@ -199,6 +218,52 @@ class AchievementCommand(private val ach: Achievements) {
             "admin-revoked",
             ach.ph().player(target.name.orEmpty()).achievement(achievement.display),
         )
+        return 1
+    }
+
+    /**
+     * `/업적 관리 초기화 <대상> [업적]`. 업적 인자가 없으면 그 사람 전체.
+     *
+     * 되돌릴 수 없으므로 결과(지운 개수)를 반드시 보고한다. 아무것도 없으면
+     * 그 취지로 말한다 — 오타로 다른 사람을 친 줄 모르고 지나가면 안 된다.
+     */
+    private fun reset(
+        sender: CommandSender,
+        context: com.mojang.brigadier.context.CommandContext<CommandSourceStack>,
+        rawAchievement: String?,
+    ): Int {
+        val target = Bukkit.getOfflinePlayer(StringArgumentType.getString(context, "대상"))
+        if (target.name == null) {
+            ach.tell(sender, "player-not-found")
+            return 0
+        }
+        val achievement = rawAchievement?.let { ach.registry.find(it) }
+        if (rawAchievement != null && achievement == null) {
+            ach.tell(sender, "not-found")
+            return 0
+        }
+        val summary = ach.service.reset(target.uniqueId, achievement?.uid)
+        val name = target.name.orEmpty()
+        if (summary.tiers == 0 && summary.progress == 0 && summary.firsts == 0 &&
+            summary.mailbox == 0 && summary.queued == 0
+        ) {
+            ach.tell(sender, "admin-reset-empty", ach.ph().player(name))
+            return 1
+        }
+        if (achievement != null) {
+            ach.tell(
+                sender,
+                "admin-reset-one",
+                ach.ph().player(name).achievement(achievement.display)
+                    .count(summary.tiers.toLong()),
+            )
+        } else {
+            ach.tell(
+                sender,
+                "admin-reset",
+                ach.ph().player(name).count(summary.tiers.toLong()),
+            )
+        }
         return 1
     }
 

@@ -77,6 +77,34 @@ class TitleForgeHook(private val logger: Logger) {
         else DEFAULT_TYPE to text
     }
 
+    /**
+     * 타이틀포지의 칭호·인장 목록. `TitleForgeApi.all(type)` 하나만 쓴다 — grant 와 같은
+     * 리플렉션 경계라 타이틀포지 없는 서버에서도 적재가 터지지 않는다.
+     *
+     * 편집 화면의 선택 목록용이다. 지급은 기존 `grant` 그대로.
+     */
+    fun listBadges(): List<TitleRef> {
+        if (!isEnabled) return emptyList()
+        return runCatching {
+            val all = apiClass!!.getMethod("all", badgeTypeClass)
+            val out = ArrayList<TitleRef>()
+            for (constant in badgeTypeClass!!.enumConstants) {
+                val type = (constant as Enum<*>).name
+                val result = all.invoke(apiInstance, constant) as? List<*> ?: continue
+                for (badge in result) {
+                    if (badge == null) continue
+                    val id = badge.javaClass.getMethod("getId").invoke(badge) as? String ?: continue
+                    val display = badge.javaClass.getMethod("getDisplayName").invoke(badge) as? String ?: id
+                    out += TitleRef(type, id, display)
+                }
+            }
+            out.sortedWith(compareBy({ it.type }, { it.id }))
+        }.getOrDefault(emptyList())
+    }
+
+    /** 편집 화면 선택 목록 한 줄. `title` 필드에는 `"${type}:${id}"` 로 적힌다. */
+    data class TitleRef(val type: String, val id: String, val display: String)
+
     private companion object {
         const val PLUGIN = "InMc-TitleForge"
         const val DEFAULT_TYPE = "TITLE"

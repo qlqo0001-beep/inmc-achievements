@@ -25,8 +25,8 @@ class CompletionQueueTest {
 
     private val player = UUID.randomUUID()
 
-    private fun snapshot(uid: String, tier: String) = CompletionSnapshot(
-        playerId = player,
+    private fun snapshot(uid: String, tier: String, id: UUID = player) = CompletionSnapshot(
+        playerId = id,
         uid = uid,
         tierId = tier,
         achievementName = uid,
@@ -97,6 +97,33 @@ class CompletionQueueTest {
 
         assertTrue(queue.isQueued(player, "a", "t1"))
         assertFalse(queue.isQueued(player, "a", "t2"))
+    }
+
+    @Test
+    fun `초기화는 그 사람의 것만 버린다`() {
+        // 남은 사람의 것은 순서 그대로 남고, 버린 자리는 다시 들어갈 수 있다.
+        val queue = CompletionQueue()
+        val other = UUID.randomUUID()
+        queue.offer(snapshot("a", "t1"))
+        queue.offer(snapshot("b", "t1"))
+        val foreign = snapshot("a", "t1", other)
+        queue.offer(foreign)
+
+        assertEquals(2, queue.drop(player, null))
+        assertEquals(1, queue.size)
+        assertTrue(queue.isQueued(other, "a", "t1"))
+        assertTrue(queue.offer(snapshot("a", "t1")), "버린 뒤에는 같은 것도 다시 들어간다")
+    }
+
+    @Test
+    fun `초기화는 업적을 지정하면 그것만 버린다`() {
+        val queue = CompletionQueue()
+        queue.offer(snapshot("a", "t1"))
+        queue.offer(snapshot("b", "t1"))
+
+        assertEquals(1, queue.drop(player, "a"))
+        assertFalse(queue.isQueued(player, "a", "t1"))
+        assertTrue(queue.isQueued(player, "b", "t1"))
     }
 }
 

@@ -127,6 +127,28 @@ class CompletionQueue {
         taken
     }
 
+    /**
+     * 이 사람의 대기 완료를 버린다. 관리자 초기화용 — 버린 개수를 돌려준다.
+     *
+     * 이미 `take` 로 떼어 가 처리 중인 것은 건드리지 않는다. 그쪽은 `ClaimStore` 가
+     * 기록을 갖고 있어 걸러지거나, 초기화가 끝난 뒤라 다시 쌓이기 시작한다.
+     */
+    fun drop(playerId: UUID, uid: String?): Int = synchronized(lock) {
+        val kept = ArrayDeque<CompletionSnapshot>()
+        var dropped = 0
+        while (pending.isNotEmpty()) {
+            val snapshot = pending.pollFirst()!!
+            if (snapshot.playerId == playerId && (uid == null || snapshot.uid == uid)) {
+                inFlight.remove(key(snapshot.playerId, snapshot.uid, snapshot.tierId))
+                dropped++
+            } else {
+                kept.addLast(snapshot)
+            }
+        }
+        pending = kept
+        dropped
+    }
+
     private fun key(playerId: UUID, uid: String, tierId: String): String =
         "$playerId/$uid/$tierId"
 }

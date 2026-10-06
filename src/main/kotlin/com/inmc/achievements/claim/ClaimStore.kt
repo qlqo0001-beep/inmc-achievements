@@ -137,6 +137,17 @@ class ClaimStore(private val io: ConfigService, private val folderName: String =
         return removed
     }
 
+    /**
+     * 한 사람의 달성 기록을 전부 지운다. 관리자 초기화용.
+     *
+     * 빈 파일이 남지 않게 메모리에서 빼고 파일을 지운다. 지울 것이 없으면 false.
+     */
+    fun purgePlayer(playerId: UUID): Boolean {
+        val had = byPlayer.remove(playerId) != null
+        File(folder, "$playerId.yml").delete()
+        return had
+    }
+
     // --- 영속화 ---------------------------------------------------------------------
 
     /**

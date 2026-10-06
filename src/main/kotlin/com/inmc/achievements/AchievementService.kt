@@ -428,6 +428,43 @@ class AchievementService(private val ach: Achievements) {
         return removed
     }
 
+    /** 관리자 초기화 결과 — 보고용 개수. */
+    data class ResetSummary(
+        /** 지운 달성 단계 수. */
+        val tiers: Int,
+        /** 지운 진행 항목 수. */
+        val progress: Int,
+        /** 푼 서버 최초 기록 수. */
+        val firsts: Int,
+        /** 버린 우편함 항목 수. */
+        val mailbox: Int,
+        /** 버린 대기 완료 수. */
+        val queued: Int,
+    )
+
+    /**
+     * `/업적 관리 초기화`. 진행·달성 기록·점수·서버 최초·우편함을 지운다.
+     *
+     * uid 가 null 이면 그 사람 전체, 있으면 그 업적 하나. 우편함 항목에는 업적이
+     * 적혀 있지 않아 귀속을 가릴 수 없으므로 전체 초기화 때만 비운다.
+     * 점수는 claims 에서 다시 계산되므로 `refresh` 하나로 끝나고, 발견 표시는
+     * 진행도에 딸려 있어 따로 손댈 것이 없다.
+     *
+     * 순서는 대기 완료 버리기가 먼저다 — 지우는 사이에 처리되면 지운 것이 되살아난다.
+     * 이미 `take` 로 떼어 가 처리 중인 것은 건드리지 않는다(그쪽은 기록이 있어 걸러진다).
+     */
+    fun reset(playerId: UUID, uid: String?): ResetSummary {
+        val tiers = if (uid != null) ach.claims.claims(playerId, uid).size
+        else ach.claims.all(playerId).values.sumOf { it.size }
+        val queued = ach.queue.drop(playerId, uid)
+        if (uid != null) ach.claims.purge(playerId, uid) else ach.claims.purgePlayer(playerId)
+        val progress = ach.counters.clear(playerId, uid, ach.players)
+        val firsts = ach.firstClears.release(playerId, uid)
+        val mailbox = if (uid == null) ach.mailbox.discard(playerId) else 0
+        ach.points.refresh(playerId)
+        return ResetSummary(tiers, progress, firsts, mailbox, queued)
+    }
+
     /**
      * 접속했을 때 미뤄둔 것을 처리한다 — **미룬 지급과 미룬 연출만.**
      *

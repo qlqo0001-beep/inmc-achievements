@@ -224,15 +224,22 @@ class TierEditMenu(
             mutate { it.copy(points = (it.points + delta).coerceAtLeast(0)) }
         }
 
-        set(SLOT_TITLE, Icon.of(Material.GOLDEN_HELMET, "<yellow>칭호 보상</yellow>", listOf(
-            "<white>" + tier.title.ifBlank { "(없음)" } + "</white>",
-            "<dark_gray>타입:아이디 (예: TITLE:벌목왕)</dark_gray>",
-            if (ach.titles.isEnabled) "" else "<red>타이틀포지가 없어 지급되지 않습니다.</red>",
-        ))) {
-            prompt(viewer, "<yellow>칭호를 입력하세요. (비우려면 '-')</yellow>") { raw ->
-                val value = raw.trim().takeIf { it != "-" }.orEmpty()
-                mutate { it.copy(title = value) }
-                open()
+        set(SLOT_TITLE, Icon.of(Material.GOLDEN_HELMET, "<yellow>칭호 보상</yellow>", buildList {
+            add("<white>" + tier.title.ifBlank { "(없음)" } + "</white>")
+            add("<dark_gray>타입:아이디 (예: TITLE:벌목왕)</dark_gray>")
+            if (ach.titles.isEnabled) add("<gray>클릭: 목록에서 고르기</gray>")
+            else add("<red>타이틀포지가 없어 지급되지 않습니다.</red>")
+        })) {
+            if (ach.titles.isEnabled) {
+                TitlePickMenu(ach, viewer, tier.title,
+                    apply = { value -> mutate { it.copy(title = value) } },
+                    back = { open() }).open(viewer)
+            } else {
+                prompt(viewer, "<yellow>칭호를 입력하세요. (비우려면 '-')</yellow>") { raw ->
+                    val value = raw.trim().takeIf { it != "-" }.orEmpty()
+                    mutate { it.copy(title = value) }
+                    open()
+                }
             }
         }
 
