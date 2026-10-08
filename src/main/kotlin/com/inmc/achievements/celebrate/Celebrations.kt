@@ -66,6 +66,33 @@ class Celebrations(private val ach: Achievements) {
         }
     }
 
+    /**
+     * 관리자 미리보기(`/업적 관리 연출`, 2026-10-08) — 달성·기록·보상 없이 **연출만** 그 사람에게. 공지 문구는 서버에 띄우지 않고
+     * 본인에게만 보여 준다. 전에는 연출을 고친 뒤 보려면 달성시키고 초기화해야 했다(그리고 초기화는 준 보상을 거두지 않는다).
+     */
+    fun preview(player: Player, achievement: com.inmc.achievements.achievement.Achievement) {
+        val tier = achievement.tiers.lastOrNull()
+        val celebration = tier?.celebration ?: achievement.celebration
+        val snapshot = CompletionSnapshot(
+            playerId = player.uniqueId,
+            uid = achievement.uid,
+            tierId = tier?.id.orEmpty(),
+            achievementName = achievement.display,
+            tierName = tier?.label.orEmpty(),
+            points = tier?.points ?: 0,
+            units = emptyList(),
+            celebration = celebration,
+            highest = true,
+            online = true,
+        )
+        personal(player, snapshot, celebration)
+        if (celebration.broadcast.isNotBlank()) {
+            val ph = ach.ph().achievement(snapshot.achievementName).tier(snapshot.tierName)
+                .player(kr.inmc.core.integration.TitleForgeNames.displayName(player.uniqueId, player.name))
+            player.sendMessage(Text.renderFlat("<dark_gray>[미리보기 · 공지 ${celebration.scope.display}]</dark_gray> ").append(Text.renderFlat(celebration.broadcast, ph)))
+        }
+    }
+
     private fun personal(player: Player, snapshot: CompletionSnapshot, celebration: Celebration) {
         if (celebration.toast) ach.toasts.show(player, snapshot)
 

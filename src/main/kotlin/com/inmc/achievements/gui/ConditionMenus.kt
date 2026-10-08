@@ -78,8 +78,9 @@ class ConditionMenu(
         null -> listOf("<red>없습니다 — 이 업적은 완료될 수 없습니다.</red>")
         is Condition.Stat -> buildList {
             add("<gray>통계: <white>" + condition.statistic.name + "</white></gray>")
-            condition.material?.let { add("<gray>대상: <white>" + it.name + "</white></gray>") }
-            condition.entity?.let { add("<gray>대상: <white>" + it.name + "</white></gray>") }
+            val targets = condition.materials.map { it.name } + condition.entities.map { it.name }
+            if (targets.isNotEmpty()) add("<gray>대상: <white>" + targets.joinToString(", ") + "</white></gray>")
+            if (targets.size > 1) add("<dark_gray>대상들의 합으로 셉니다.</dark_gray>")
             if (!condition.isWellFormed()) add("<red>대상이 맞지 않습니다.</red>")
         }
         is Condition.Signal -> buildList {
@@ -156,28 +157,44 @@ class StatPickMenu(
                 ConditionMenu(ach, viewer, uid).open(viewer)
             }
             Statistic.Type.ITEM, Statistic.Type.BLOCK -> {
-                prompt(viewer, "<yellow>대상 아이템/블록 이름을 입력하세요. (예: OAK_LOG)</yellow>") { raw ->
-                    val material = Material.matchMaterial(raw.trim())
-                    if (material == null) {
-                        ach.tell(viewer, "admin-invalid-id", ach.ph().reason("그런 재질이 없습니다"))
-                    } else {
-                        apply(Condition.Stat(statistic, material = material))
+                prompt(viewer, "<yellow>대상 아이템/블록 이름을 입력하세요. 여러 개는 쉼표로 — 합으로 셉니다. " +
+                    "(예: DIAMOND_ORE, DEEPSLATE_DIAMOND_ORE)</yellow>" + current(statistic)) { raw ->
+                    val names = targets(raw)
+                    val unknown = names.filter { Material.matchMaterial(it) == null }
+                    when {
+                        names.isEmpty() -> ach.tell(viewer, "admin-invalid-id", ach.ph().reason("대상을 입력하세요"))
+                        unknown.isNotEmpty() -> ach.tell(viewer, "admin-invalid-id", ach.ph().reason("그런 재질이 없습니다: " + unknown.joinToString(", ")))
+                        else -> apply(Condition.Stat.of(statistic, materials = names.mapNotNull(Material::matchMaterial)))
                     }
                     ConditionMenu(ach, viewer, uid).open(viewer)
                 }
             }
             Statistic.Type.ENTITY -> {
-                prompt(viewer, "<yellow>대상 몹 이름을 입력하세요. (예: ZOMBIE)</yellow>") { raw ->
-                    val entity = runCatching { EntityType.valueOf(raw.trim().uppercase()) }.getOrNull()
-                    if (entity == null) {
-                        ach.tell(viewer, "admin-invalid-id", ach.ph().reason("그런 몹이 없습니다"))
-                    } else {
-                        apply(Condition.Stat(statistic, entity = entity))
+                prompt(viewer, "<yellow>대상 몹 이름을 입력하세요. 여러 개는 쉼표로 — 합으로 셉니다. " +
+                    "(예: ZOMBIE, HUSK, DROWNED)</yellow>" + current(statistic)) { raw ->
+                    val names = targets(raw)
+                    fun entity(name: String) = runCatching { EntityType.valueOf(name.uppercase()) }.getOrNull()
+                    val unknown = names.filter { entity(it) == null }
+                    when {
+                        names.isEmpty() -> ach.tell(viewer, "admin-invalid-id", ach.ph().reason("대상을 입력하세요"))
+                        unknown.isNotEmpty() -> ach.tell(viewer, "admin-invalid-id", ach.ph().reason("그런 몹이 없습니다: " + unknown.joinToString(", ")))
+                        else -> apply(Condition.Stat.of(statistic, entities = names.mapNotNull(::entity)))
                     }
                     ConditionMenu(ach, viewer, uid).open(viewer)
                 }
             }
         }
+    }
+
+    /** 쉼표·공백으로 나눈 이름들. */
+    private fun targets(raw: String): List<String> = raw.split(',', ' ').map(String::trim).filter(String::isNotEmpty)
+
+    /** 같은 통계를 다시 고를 때 지금 대상을 보여준다 — 하나를 더하려면 전부 다시 쳐야 하므로. */
+    private fun current(statistic: Statistic): String {
+        val now = ach.registry.byUid(uid)?.condition as? Condition.Stat ?: return ""
+        if (now.statistic != statistic) return ""
+        val names = now.materials.map { it.name } + now.entities.map { it.name }
+        return if (names.isEmpty()) "" else " <gray>(지금: <white>" + names.joinToString(", ") + "</white>)</gray>"
     }
 
     private fun apply(condition: Condition.Stat) {

@@ -45,9 +45,22 @@ class ProgressEngine(private val ach: Achievements) {
             is Condition.Stat -> statProgress(playerId, player, achievement, condition)
             is Condition.Signal -> stored(playerId, achievement, condition)
             is Condition.Custom -> customProgress(playerId, achievement, condition)
-            is Condition.State -> stateProgress(playerId, player, condition)
+            is Condition.State -> stateProgress(playerId, player, achievement, condition)
         }
     }
+
+    /**
+     * 관리자 초기화의 기준점을 뺀다. 통계·상태·평가기 커스텀은 우리가 세지 않고 **읽어 오는** 값이라
+     * `/업적 관리 초기화` 로 지워지지 않는다 — 그대로 두면 다음 스윕이 곧바로 다시 달성시켜 보상이 또 나간다.
+     * 초기화 뒤에 새로 한 만큼만 센다([com.inmc.achievements.progress.AchievementCounters.rebase]).
+     * 초기화한 적 없는 대부분은 그대로 돌려준다.
+     */
+    private fun sinceReset(playerId: UUID, achievement: Achievement, condition: Condition, raw: Long): Long =
+        if (ach.counters.isLoaded(playerId)) {
+            ach.counters.sinceReset(playerId, achievement.uid, condition.signature, raw)
+        } else {
+            ach.counters.sinceResetOffline(ach.players, playerId, achievement.uid, condition.signature, raw)
+        }
 
     /**
      * 저장된 진행도와 그 지문. **메모리에 없는 사람은 공유 저장소에서 읽는다.**
@@ -86,20 +99,21 @@ class ProgressEngine(private val ach: Achievements) {
             return Progress.Known(count)
         }
         val value = readStatistic(player, condition) ?: return Progress.Unavailable
-        return Progress.Known(value)
+        // 오프라인 분기의 캐시는 이미 기준점을 뺀 값이다 — 스윕이 뺀 값을 캐시에 적는다.
+        return Progress.Known(sinceReset(playerId, achievement, condition, value))
     }
 
     /**
      * 바닐라 카운터를 읽는다. **인자 수는 정의 저장 시점에 검사했으므로** 여기서 터질 일이
      * 없지만, 손으로 고친 YAML 이 들어올 수 있어 감싼다 — 한 사람이 터져서 스윕의 나머지가
-     * 건너뛰어지면 안 된다.
+     * 건너뛰어지면 안 된다. 대상이 여럿이면 합이고, 하나라도 못 읽으면 모른다(일부만 더한 값을 진행도라고 보이지 않는다).
      */
     fun readStatistic(player: Player, condition: Condition.Stat): Long? = runCatching {
         when {
-            condition.material != null ->
-                player.getStatistic(condition.statistic, condition.material).toLong()
-            condition.entity != null ->
-                player.getStatistic(condition.statistic, condition.entity).toLong()
+            condition.materials.isNotEmpty() ->
+                condition.materials.sumOf { player.getStatistic(condition.statistic, it).toLong() }
+            condition.entities.isNotEmpty() ->
+                condition.entities.sumOf { player.getStatistic(condition.statistic, it).toLong() }
             else -> player.getStatistic(condition.statistic).toLong()
         }
     }.getOrNull()
@@ -114,7 +128,7 @@ class ProgressEngine(private val ach: Achievements) {
         if (ach.custom.knows(condition.kind)) {
             val pulled = ach.custom.evaluate(condition.kind, playerId, condition.value)
             // 평가기가 있는데 실패했다 — 모른다. 저장값으로 떨어지면 두 원천이 섞인다.
-            return if (pulled != null) Progress.Known(pulled) else Progress.Unavailable
+            return if (pulled != null) Progress.Known(sinceReset(playerId, achievement, condition, pulled)) else Progress.Unavailable
         }
         // 밀어 넣은 적이 없으면 0이 아니라 "모름" 이다. 아무도 이 종류를 모르는 상태와 구별이
         // 안 되기 때문이다 — 0으로 보이면 영영 조용히 미완료가 된다.
@@ -122,7 +136,12 @@ class ProgressEngine(private val ach: Achievements) {
         return if (signature == condition.signature) Progress.Known(count) else Progress.Unavailable
     }
 
-    private fun stateProgress(playerId: UUID, player: Player?, condition: Condition.State): Progress {
+    private fun stateProgress(
+        playerId: UUID,
+        player: Player?,
+        achievement: Achievement,
+        condition: Condition.State,
+    ): Progress {
         val satisfied: Boolean? = when (condition.kind) {
             StateKind.ACHIEVEMENT -> {
                 val target = ach.registry.byUid(condition.value) ?: return Progress.Unavailable
@@ -134,10 +153,11 @@ class ProgressEngine(private val ach: Achievements) {
             StateKind.RANK_TOP -> rankTop(playerId, condition.value)
             StateKind.ITEM_HELD -> player?.let { holding(it, condition.value) }
         }
+        // 초기화 때 충족돼 있었으면 기준점이 1 — 한 번 풀렸다가(기준점이 0으로) 다시 충족돼야 달성된다.
         return when (satisfied) {
             null -> Progress.Unavailable
-            true -> Progress.Known(1L)
-            false -> Progress.Known(0L)
+            true -> Progress.Known(sinceReset(playerId, achievement, condition, 1L))
+            false -> Progress.Known(sinceReset(playerId, achievement, condition, 0L))
         }
     }
 

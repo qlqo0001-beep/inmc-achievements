@@ -31,6 +31,8 @@ data class PayoutUnit(
     val command: String = "",
     /** `타입:아이디`. 타이틀포지에 넘길 값. */
     val title: String = "",
+    /** 돈의 화폐 id — 비우면 기본 화폐(2026-10-08). */
+    val currency: String = "",
     var state: UnitState = UnitState.PENDING,
 ) {
 
@@ -38,7 +40,7 @@ data class PayoutUnit(
         section.set("type", type.name)
         section.set("state", state.name)
         when (type) {
-            UnitType.MONEY -> section.set("money", money)
+            UnitType.MONEY -> { section.set("money", money); if (currency.isNotBlank()) section.set("currency", currency) }
             UnitType.ITEM -> section.set("stack", stack)
             UnitType.COMMAND -> section.set("command", command)
             UnitType.TITLE -> section.set("title", title)
@@ -47,7 +49,7 @@ data class PayoutUnit(
 
     /** 사람이 읽을 한 줄. `/업적 미지급` 과 편집 화면이 쓴다. */
     fun describe(): String = when (type) {
-        UnitType.MONEY -> "돈 " + String.format("%,.0f", money)
+        UnitType.MONEY -> "돈 " + String.format("%,.0f", money) + (if (currency.isNotBlank()) " ($currency)" else "")
         UnitType.ITEM -> (stack?.type?.name ?: "아이템") + " x" + (stack?.amount ?: 0)
         UnitType.COMMAND -> "명령어 " + command.take(40)
         UnitType.TITLE -> "칭호 " + title
@@ -59,6 +61,7 @@ data class PayoutUnit(
             return PayoutUnit(
                 type = type,
                 money = section.getDouble("money", 0.0),
+                currency = section.getString("currency").orEmpty(),
                 stack = section.getItemStack("stack"),
                 command = section.getString("command").orEmpty(),
                 title = section.getString("title").orEmpty(),

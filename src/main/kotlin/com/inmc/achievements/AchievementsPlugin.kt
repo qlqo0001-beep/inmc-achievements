@@ -84,6 +84,9 @@ class AchievementsPlugin : JavaPlugin() {
         // 3. 진행도를 공유 저장소로. flush 는 core 가 자기 onDisable 에서 한다.
         runCatching { ach.counters.syncTo(ach.players) }
 
+        // 토스트를 하나씩(저장형) 등록한 서버면 지운다 — 다음 켤 때 지금 정의로 새로.
+        runCatching { ach.toasts.unregisterPersisted() }
+
         // 4. 공급처와 평가기를 뺀다. 람다가 우리 클래스로더를 붙들고 있다.
         SignalCatalog.unregisterAll(SOURCE)
         ach.custom.clear()

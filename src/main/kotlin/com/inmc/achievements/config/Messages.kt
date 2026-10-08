@@ -55,11 +55,18 @@ class Messages(values: Map<String, String>) : MessageCatalog<Ph>(values, DEFAULT
             "admin-reset" to "<yellow>{플레이어} 님의 업적 데이터를 초기화했습니다. (달성 {진행도}단계)</yellow>",
             "admin-reset-one" to "<yellow>{플레이어} 님의 '{업적}' 기록을 초기화했습니다. (달성 {진행도}단계)</yellow>",
             "admin-reset-empty" to "<gray>{플레이어} 님에게 지울 업적 데이터가 없습니다.</gray>",
+            "admin-reset-titles" to "<gray>준 칭호 {count}개를 거뒀습니다.</gray>",
             "admin-reloaded" to "<green>설정을 다시 읽었습니다. (업적 {진행도}개)</green>",
+            "verify-done" to "<gold>업적 검증</gold> <gray>— 통과 <green>{진행도}</green> · 실패 <red>{수량}</red>{사유}</gray>",
+            "verify-failure" to "<red> ✘ {사유}</red>",
+            "verify-skipped" to "<gray> – {사유}</gray>",
+            "verify-report" to "<gray>결과 파일: <white>{사유}</white></gray>",
             "admin-unpaid" to "<yellow>지급 여부가 확인되지 않은 항목 {진행도}건이 있습니다.</yellow>",
             "admin-unpaid-none" to "<green>확인이 필요한 미지급 항목이 없습니다.</green>",
             "admin-rebuilding" to "<gray>정의가 바뀌어 기록을 다시 계산하고 있습니다...</gray>",
             "admin-rebuilt" to "<green>기록 재계산을 마쳤습니다. (플레이어 {진행도}명)</green>",
+            "admin-signal-sent" to "<green>신호를 보냈습니다 — {사유} ×{진행도}</green>",
+            "admin-signal-usage" to "<red>/업적 관리 신호 [출처] [종류] [대상|-] [수] [키=값 …] — 예: /업적 관리 신호 discord chat - 10</red>",
 
             // --- 공통 ---------------------------------------------------------------
             "no-permission" to "<red>권한이 없습니다.</red>",

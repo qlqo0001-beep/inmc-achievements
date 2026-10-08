@@ -78,10 +78,17 @@ class AchievementEditMenu(
         set(SLOT_CATEGORY, Icon.of(
             item.category.icon,
             "<yellow>분류: " + item.category.display + "</yellow>",
-            Editors.optionList(Category.entries.toList(), item.category) { it.display },
-        )) { event ->
-            val next = Editors.cycle(event, Category.entries.toList(), item.category)
-            mutate { it.copy(category = next) }
+            Editors.pickHint,
+        )) {
+            // 분류 8개 — 좌/우클릭 순환 대신 고르는 화면으로(2026-10-08).
+            kr.inmc.core.gui.PickMenu(
+                ach, viewer, "분류 고르기", Category.entries.toList(),
+                icon = { Icon.of(it.icon, (if (it == item.category) "<green>▶ " else "<yellow>") + it.display + "</yellow>") },
+                back = { open(viewer) },
+            ) { picked ->
+                mutate(reopen = false) { it.copy(category = picked) }
+                open(viewer)
+            }.show()
         }
 
         set(SLOT_CONDITION, Icon.of(Material.COMPARATOR, "<yellow>조건</yellow>", listOf(

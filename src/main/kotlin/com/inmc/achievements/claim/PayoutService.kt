@@ -41,6 +41,7 @@ class PayoutService(private val ach: Achievements) {
         if (!bundle.isEmpty()) {
             val payout = ach.rewards.resolve(bundle, Random.Default)
             if (payout.money > 0.0) units += PayoutUnit(UnitType.MONEY, money = payout.money)
+            for ((currency, amount) in payout.moneyBy) units += PayoutUnit(UnitType.MONEY, money = amount, currency = currency)
             for (stack in payout.stacks) units += PayoutUnit(UnitType.ITEM, stack = stack.clone())
             for (command in payout.commands) units += PayoutUnit(UnitType.COMMAND, command = command)
             if (payout.unresolved > 0) {
@@ -90,7 +91,7 @@ class PayoutService(private val ach: Achievements) {
             // 미뤄 두면 경제 플러그인을 설치한 뒤 다음 접속 때 들어간다.
             UnitType.MONEY -> {
                 val target = Bukkit.getOfflinePlayer(playerId)
-                if (ach.economy.isEnabled && ach.economy.deposit(target, unit.money)) UnitState.GRANTED
+                if (ach.economy.isEnabled && ach.economy.deposit(target, unit.money, unit.currency)) UnitState.GRANTED
                 else UnitState.DEFERRED
             }
 

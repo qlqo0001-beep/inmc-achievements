@@ -39,10 +39,54 @@ class SignatureTest {
 
     @Test
     fun `대상이 달라지면 지문이 달라진다`() {
-        val oak = Condition.Stat(Statistic.MINE_BLOCK, material = Material.OAK_LOG)
-        val birch = Condition.Stat(Statistic.MINE_BLOCK, material = Material.BIRCH_LOG)
+        val oak = Condition.Stat(Statistic.MINE_BLOCK, materials = listOf(Material.OAK_LOG))
+        val birch = Condition.Stat(Statistic.MINE_BLOCK, materials = listOf(Material.BIRCH_LOG))
 
         assertNotEquals(oak.signature, birch.signature)
+    }
+
+    @Test
+    fun `대상이 하나면 예전과 같은 지문이다`() {
+        // 대상을 목록으로 바꾼 것만으로 진행도·초기화 기준점이 버려지면 안 된다.
+        assertEquals("stat|MINE_BLOCK|OAK_LOG", Condition.Stat.of(Statistic.MINE_BLOCK, listOf(Material.OAK_LOG)).signature)
+        assertEquals("stat|KILL_ENTITY|ZOMBIE", Condition.Stat.of(Statistic.KILL_ENTITY, entities = listOf(org.bukkit.entity.EntityType.ZOMBIE)).signature)
+        assertEquals("stat|MOB_KILLS", Condition.Stat(Statistic.MOB_KILLS).signature)
+    }
+
+    @Test
+    fun `대상 여럿은 순서·중복과 상관없이 같은 지문이다`() {
+        val a = Condition.Stat.of(Statistic.MINE_BLOCK, listOf(Material.DIAMOND_ORE, Material.DEEPSLATE_DIAMOND_ORE))
+        val b = Condition.Stat.of(Statistic.MINE_BLOCK, listOf(Material.DEEPSLATE_DIAMOND_ORE, Material.DIAMOND_ORE, Material.DIAMOND_ORE))
+        assertEquals(a, b)
+        assertEquals("stat|MINE_BLOCK|DEEPSLATE_DIAMOND_ORE,DIAMOND_ORE", a.signature)
+        assertNotEquals(a.signature, Condition.Stat.of(Statistic.MINE_BLOCK, listOf(Material.DIAMOND_ORE)).signature)
+        assertEquals(true, a.isWellFormed())
+    }
+
+    @Test
+    fun `대상 여럿을 저장하고 다시 읽는다`() {
+        val many = Condition.Stat.of(Statistic.MINE_BLOCK, listOf(Material.DIAMOND_ORE, Material.DEEPSLATE_DIAMOND_ORE))
+        val one = Condition.Stat.of(Statistic.MINE_BLOCK, listOf(Material.OAK_LOG))
+        for (condition in listOf(many, one)) {
+            val section = org.bukkit.configuration.file.YamlConfiguration()
+            condition.save(section)
+            assertEquals(condition, Condition.load(section))
+        }
+        // 하나면 예전 모양 그대로(`material:` 한 줄).
+        val section = org.bukkit.configuration.file.YamlConfiguration()
+        one.save(section)
+        assertEquals("OAK_LOG", section.getString("material"))
+        // 손으로 `material:` 에 목록을 써도 받는다.
+        val hand = org.bukkit.configuration.file.YamlConfiguration().apply {
+            loadFromString(
+                """
+                kind: STATISTIC
+                statistic: KILL_ENTITY
+                entity: [HUSK, ZOMBIE]
+                """.trimIndent(),
+            )
+        }
+        assertEquals(Condition.Stat.of(Statistic.KILL_ENTITY, entities = listOf(org.bukkit.entity.EntityType.ZOMBIE, org.bukkit.entity.EntityType.HUSK)), Condition.load(hand))
     }
 
     @Test
@@ -80,7 +124,7 @@ class StatArityTest {
         assertEquals(true, Condition.Stat(Statistic.MOB_KILLS).isWellFormed())
         assertEquals(
             false,
-            Condition.Stat(Statistic.MOB_KILLS, material = Material.OAK_LOG).isWellFormed(),
+            Condition.Stat(Statistic.MOB_KILLS, materials = listOf(Material.OAK_LOG)).isWellFormed(),
         )
     }
 
@@ -89,7 +133,7 @@ class StatArityTest {
         assertEquals(false, Condition.Stat(Statistic.MINE_BLOCK).isWellFormed())
         assertEquals(
             true,
-            Condition.Stat(Statistic.MINE_BLOCK, material = Material.OAK_LOG).isWellFormed(),
+            Condition.Stat(Statistic.MINE_BLOCK, materials = listOf(Material.OAK_LOG)).isWellFormed(),
         )
     }
 
@@ -98,7 +142,7 @@ class StatArityTest {
         assertEquals(false, Condition.Stat(Statistic.KILL_ENTITY).isWellFormed())
         assertEquals(
             true,
-            Condition.Stat(Statistic.KILL_ENTITY, entity = org.bukkit.entity.EntityType.ZOMBIE)
+            Condition.Stat(Statistic.KILL_ENTITY, entities = listOf(org.bukkit.entity.EntityType.ZOMBIE))
                 .isWellFormed(),
         )
         // 재질과 몹을 동시에 주는 것은 어느 쪽 오버로드를 부를지 모호하다.
@@ -106,8 +150,8 @@ class StatArityTest {
             false,
             Condition.Stat(
                 Statistic.KILL_ENTITY,
-                material = Material.OAK_LOG,
-                entity = org.bukkit.entity.EntityType.ZOMBIE,
+                materials = listOf(Material.OAK_LOG),
+                entities = listOf(org.bukkit.entity.EntityType.ZOMBIE),
             ).isWellFormed(),
         )
     }

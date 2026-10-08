@@ -186,7 +186,7 @@ class AchievementLoadTest {
             id = "나무꾼",
             display = "나무꾼",
             description = listOf("한 줄", "두 줄"),
-            condition = Condition.Stat(Statistic.MINE_BLOCK, material = org.bukkit.Material.OAK_LOG),
+            condition = Condition.Stat(Statistic.MINE_BLOCK, materials = listOf(org.bukkit.Material.OAK_LOG)),
             tiers = listOf(Tier("t1", 100, points = 3), Tier("t2", 1000, points = 8)),
             hidden = true,
             countsTowardTotal = false,

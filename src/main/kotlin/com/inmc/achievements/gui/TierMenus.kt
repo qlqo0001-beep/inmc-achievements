@@ -356,9 +356,15 @@ class RewardMenu(
 
         set(SLOT_ADD_MONEY, Icon.of(Material.GOLD_INGOT, "<green>＋ 돈</green>")) {
             promptInt(viewer, "<yellow>금액을 입력하세요.</yellow>", 1, Int.MAX_VALUE) { value ->
-                bundle.entries.add(RewardEntry(money = value.toDouble()))
-                save()
-                RewardMenu(ach, viewer, uid, tierId, first).open(viewer)
+                val add = { currency: String ->
+                    bundle.entries.add(RewardEntry(money = value.toDouble(), currency = currency))
+                    save()
+                    RewardMenu(ach, viewer, uid, tierId, first).open(viewer)
+                }
+                // 화폐가 여럿이면 고른다(사용자 결정 2026-10-08) — 하나뿐이면 묻지 않는다.
+                if (ach.economy.multiCurrency) {
+                    kr.inmc.core.gui.CurrencyPick.open(ach, viewer, "", back = { RewardMenu(ach, viewer, uid, tierId, first).open(viewer) }, onPick = add)
+                } else add("")
             }
         }
 
@@ -395,7 +401,7 @@ class RewardMenu(
 
     private fun describe(entry: RewardEntry): String = when {
         entry.item != null -> entry.item?.displayName ?: entry.item!!.material.name
-        entry.money > 0 -> "돈 " + String.format("%,.0f", entry.money)
+        entry.money > 0 -> "돈 " + String.format("%,.0f", entry.money) + (if (entry.currency.isNotBlank()) " · " + ach.economy.currencyName(entry.currency) else "")
         entry.commands.isNotEmpty() -> entry.commands.first().take(30)
         else -> "(비어 있음)"
     }

@@ -69,6 +69,25 @@ class TitleForgeHook(private val logger: Logger) {
         }.isSuccess
     }
 
+    /** `타입:아이디` 를 거둔다(초기화 때, 2026-10-08). 안 갖고 있었으면 그쪽이 false — 거둘 것이 없으니 참으로 본다. */
+    fun revoke(player: Player, raw: String): Boolean {
+        if (!isEnabled) return false
+        val (type, id) = split(raw) ?: return false
+        return runCatching {
+            val badgeType = java.lang.Enum.valueOf(
+                @Suppress("UNCHECKED_CAST")
+                (badgeTypeClass as Class<out Enum<*>>),
+                type,
+            )
+            apiClass!!
+                .getMethod("revoke", Player::class.java, badgeTypeClass, String::class.java)
+                .invoke(apiInstance, player, badgeType, id)
+            true
+        }.onFailure {
+            logger.warning("칭호 '$raw' 회수에 실패했습니다: " + it.message)
+        }.isSuccess
+    }
+
     /** `TITLE:벌목왕` · `벌목왕`(타입 생략). 못 읽으면 null. */
     fun split(raw: String): Pair<String, String>? {
         val text = raw.trim().takeIf { it.isNotBlank() } ?: return null

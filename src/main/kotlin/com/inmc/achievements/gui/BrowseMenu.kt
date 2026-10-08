@@ -7,6 +7,7 @@ import com.inmc.achievements.progress.ProgressEngine
 import kr.inmc.core.gui.Icon
 import kr.inmc.core.gui.Paging
 import kr.inmc.core.util.Text
+import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.entity.Player
 import java.util.UUID
@@ -21,17 +22,24 @@ import java.util.UUID
  *   것만 알린다 — 칸 자체를 지우면 목록이 들쭉날쭉해져 오히려 눈에 띈다.
  * - `countsTowardTotal = false` 인 히든은 **분모에서 빠진다.** 그래야 전부 모은 사람이
  *   100% 를 볼 수 있다. 다만 **점수는 준다** — 그 둘이 어긋나 보이므로 화면에 적어 둔다.
+ *
+ * 관리자 `/업적 관리 보기 <대상>`(2026-10-08)은 같은 화면을 **그 사람 기준**으로 연다([subject]) — 히든도 펼쳐 보인다.
  */
 class BrowseMenu(
     ach: Achievements,
     private val viewer: Player,
     private var page: Int = 0,
     private var category: Category? = null,
-) : Menu(ach, 54, Text.renderFlat("<dark_gray>업적</dark_gray>")) {
+    private val subject: UUID = viewer.uniqueId,
+    private val subjectName: String = viewer.name,
+) : Menu(ach, 54, Text.renderFlat("<dark_gray>업적" + (if (subject == viewer.uniqueId) "" else " · $subjectName") + "</dark_gray>")) {
+
+    /** 남의 것을 보는 관리자 화면 — 히든을 펼친다. */
+    private val inspecting = subject != viewer.uniqueId
 
     override fun draw() {
         clear()
-        val id = viewer.uniqueId
+        val id = subject
         val items = visible()
 
         val shown = Paging.slice(items, page)
@@ -43,10 +51,12 @@ class BrowseMenu(
             refresh()
         }
         set(SLOT_STATS, summaryIcon(id)) {
-            StatsMenu(ach, viewer, id, viewer.name).open(viewer)
+            StatsMenu(ach, viewer, id, subjectName).open(viewer)
         }
-        set(SLOT_GUIDE, Icon.of(Material.COMPASS, "<yellow>길라잡이</yellow>", "<gray>순서대로 따라가 보세요</gray>")) {
-            GuideMenu(ach, viewer).open(viewer)
+        if (!inspecting) {
+            set(SLOT_GUIDE, Icon.of(Material.COMPASS, "<yellow>길라잡이</yellow>", "<gray>순서대로 따라가 보세요</gray>")) {
+                GuideMenu(ach, viewer).open(viewer)
+            }
         }
 
         val pages = Paging.pageCount(items.size)
@@ -68,7 +78,7 @@ class BrowseMenu(
      */
     private fun iconFor(id: UUID, achievement: Achievement): org.bukkit.inventory.ItemStack {
         val discovered = !achievement.hidden || ach.counters.isDiscovered(id, achievement.uid)
-        if (!discovered) {
+        if (!discovered && !inspecting) {
             return Icon.of(
                 Material.GRAY_DYE,
                 "<dark_gray>???</dark_gray>",
@@ -81,13 +91,15 @@ class BrowseMenu(
         val done = steps.count { it.id in claimed }
         val complete = done >= steps.size
 
-        val progress = ach.engine.progressOf(id, viewer, achievement)
+        val progress = ach.engine.progressOf(id, if (inspecting) Bukkit.getPlayer(id) else viewer, achievement)
         val count = (progress as? ProgressEngine.Progress.Known)?.count ?: 0L
         val next = steps.firstOrNull { it.id !in claimed }
         val goal = next?.threshold ?: achievement.maxThreshold()
 
         val lore = buildList {
             add("<dark_gray>" + achievement.category.display + "</dark_gray>")
+            // 발견 기록은 메모리에만 있다 — 오프라인인 사람은 알 수 없어 적지 않는다.
+            if (!discovered && ach.counters.isLoaded(id)) add("<dark_purple>히든 — 그 사람은 아직 발견하지 못함</dark_purple>")
             if (achievement.description.isNotEmpty()) {
                 add("")
                 addAll(achievement.description.map { "<gray>$it</gray>" })
@@ -135,7 +147,7 @@ class BrowseMenu(
         val percent = if (total <= 0) 0.0 else done * 100.0 / total
         return Icon.of(
             Material.NETHER_STAR,
-            "<gold>내 업적</gold>",
+            if (inspecting) "<gold>$subjectName 의 업적</gold>" else "<gold>내 업적</gold>",
             listOf(
                 "<gray>달성: <white>$done</white>/<white>$total</white> " +
                     "<dark_gray>(" + String.format("%.1f", percent) + "%)</dark_gray></gray>",

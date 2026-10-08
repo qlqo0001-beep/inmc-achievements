@@ -374,10 +374,32 @@ class AchievementService(private val ach: Achievements) {
         if (candidates.isEmpty()) return
         for (achievement in candidates) {
             val region = ach.regions.get(achievement.discovery.value) ?: continue
-            if (region.precise) continue
-            if (region.contains(player.location)) discover(player.uniqueId, player, achievement)
+            val inside = region.contains(player.location)
+            // 정밀 지역의 발견은 이동 리스너가 한다. 여기서는 밖에 있는 것을 보는 것(초기화 뒤 기다림 풀기)만 —
+            // 이동 리스너는 안에 있을 때만 부르고, 순간이동·접속으로 나간 것은 이동으로 안 온다.
+            if (region.precise && inside) continue
+            discoverWhen(player, achievement, inside)
         }
     }
+
+    /**
+     * 표본형 발견 조건을 본 결과. 관리자 초기화 직후에는 조건이 한 번 거짓이 될 때까지 열지 않는다([markReset]).
+     */
+    private fun discoverWhen(player: Player, achievement: Achievement, satisfied: Boolean) {
+        val id = player.uniqueId
+        if (!satisfied) {
+            if (ach.counters.isLoaded(id)) ach.counters.releaseDiscoverWait(id, achievement.uid)
+            else if (ach.counters.storedDiscoverWaiting(ach.players, id, achievement.uid)) {
+                ach.counters.releaseDiscoverWaitOffline(ach.players, id, achievement.uid)
+            }
+            return
+        }
+        if (!discoverWaiting(id, achievement)) discover(id, player, achievement)
+    }
+
+    private fun discoverWaiting(playerId: UUID, achievement: Achievement): Boolean =
+        if (ach.counters.isLoaded(playerId)) ach.counters.discoverWaiting(playerId, achievement.uid)
+        else ach.counters.storedDiscoverWaiting(ach.players, playerId, achievement.uid)
 
     /**
      * 외부가 등록한 발견 조건. 값은 `종류` 또는 `종류:인자`.
@@ -393,16 +415,19 @@ class AchievementService(private val ach: Achievements) {
             val raw = achievement.discovery.value
             val kind = raw.substringBefore(':').trim()
             val argument = raw.substringAfter(':', "").trim()
-            if (ach.custom.evaluateDiscovery(kind, id, argument) == true) discover(id, player, achievement)
+            // null 은 "모름"(평가기 없음·실패) — 열지도 기다림을 풀지도 않는다.
+            val satisfied = ach.custom.evaluateDiscovery(kind, id, argument) ?: continue
+            discoverWhen(player, achievement, satisfied)
         }
     }
 
     /** 이동 리스너가 정밀 지역에 들어온 사람을 알린다. */
     fun enteredPreciseRegion(player: Player, regionName: String) {
         for (achievement in discoveryIndex[DiscoveryKind.REGION].orEmpty()) {
-            if (achievement.discovery.value.equals(regionName, ignoreCase = true)) {
-                discover(player.uniqueId, player, achievement)
-            }
+            if (!achievement.discovery.value.equals(regionName, ignoreCase = true)) continue
+            // 초기화 직후 안에 있던 사람은 한 번 나갔다 와야 한다 — 나간 것은 스윕이 본다(discoverByRegion).
+            if (discoverWaiting(player.uniqueId, achievement)) continue
+            discover(player.uniqueId, player, achievement)
         }
     }
 
@@ -440,6 +465,8 @@ class AchievementService(private val ach: Achievements) {
         val mailbox: Int,
         /** 버린 대기 완료 수. */
         val queued: Int,
+        /** 거둔 칭호 수(접속 중일 때만 거둔다 — 타이틀포지 API 가 Player 를 받는다). */
+        val titles: Int = 0,
     )
 
     /**
@@ -456,13 +483,57 @@ class AchievementService(private val ach: Achievements) {
     fun reset(playerId: UUID, uid: String?): ResetSummary {
         val tiers = if (uid != null) ach.claims.claims(playerId, uid).size
         else ach.claims.all(playerId).values.sumOf { it.size }
+        val titles = reclaimTitles(playerId, uid)
         val queued = ach.queue.drop(playerId, uid)
         if (uid != null) ach.claims.purge(playerId, uid) else ach.claims.purgePlayer(playerId)
         val progress = ach.counters.clear(playerId, uid, ach.players)
+        markReset(playerId, uid)
         val firsts = ach.firstClears.release(playerId, uid)
         val mailbox = if (uid == null) ach.mailbox.discard(playerId) else 0
         ach.points.refresh(playerId)
-        return ResetSummary(tiers, progress, firsts, mailbox, queued)
+        return ResetSummary(tiers, progress, firsts, mailbox, queued, titles)
+    }
+
+    /**
+     * 초기화할 때 **준 칭호를 거둔다**(사용자 결정 2026-10-08 — 돈은 이미 썼을 수 있어 그대로 둔다). 기록(claims)에서 `GRANTED` 인 칭호 단위만.
+     * 타이틀포지 API 가 Player 를 받아 접속 중일 때만 — 오프라인이면 0 이고 기록은 그대로 지워진다.
+     */
+    private fun reclaimTitles(playerId: UUID, uid: String?): Int {
+        if (!ach.titles.isEnabled) return 0
+        val player = org.bukkit.Bukkit.getPlayer(playerId) ?: return 0
+        val claims = if (uid != null) ach.claims.claims(playerId, uid).values else ach.claims.all(playerId).values.flatMap { it.values }
+        var count = 0
+        for (claim in claims) for (unit in claim.units) {
+            if (unit.type != com.inmc.achievements.claim.UnitType.TITLE || unit.state != com.inmc.achievements.claim.UnitState.GRANTED) continue
+            if (ach.titles.revoke(player, unit.title)) count++
+        }
+        return count
+    }
+
+    /**
+     * 지워도 그대로인 것에 초기화 표시를 남긴다 — **초기화 뒤에 새로 한 것만 다시 준다**(사용자 결정 2026-10-07).
+     *
+     *  - 통계·상태·평가기 커스텀: 우리가 세지 않고 읽어 오는 값이라 지워지지 않는다. 다음에 읽은 값이 기준점이 되고
+     *    그 위로 늘어난 만큼만 센다. 상태는 한 번 풀렸다가 다시 충족돼야 한다([ProgressEngine] `sinceReset`).
+     *  - 지역·커스텀 발견: 그 자리에 선 채로 초기화하면 곧바로 다시 발견되고, "발견 즉시 달성" 이면 보상이 또 나간다.
+     *    한 번 거짓이 될 때까지(나갔다가 다시 들어올 때까지) 다시 열지 않는다([discoverWhen]).
+     *
+     * 신호·밀어 넣는 커스텀은 우리가 센 값이라 지우는 것으로 0부터다. 신호·아이템·NPC·다른 업적 발견은 그 자체가 새 사건이다.
+     */
+    private fun markReset(playerId: UUID, uid: String?) {
+        val targets = if (uid != null) listOfNotNull(ach.registry.byUid(uid)) else ach.registry.all()
+        val loaded = ach.counters.isLoaded(playerId)
+        for (achievement in targets) {
+            val read = when (achievement.condition) {
+                is Condition.Stat, is Condition.State, is Condition.Custom -> true
+                else -> false
+            }
+            val wait = achievement.hidden &&
+                (achievement.discovery.kind == DiscoveryKind.REGION || achievement.discovery.kind == DiscoveryKind.CUSTOM)
+            if (!read && !wait) continue
+            if (loaded) ach.counters.markReset(playerId, achievement.uid, read, wait)
+            else ach.counters.markResetOffline(ach.players, playerId, achievement.uid, read, wait)
+        }
     }
 
     /**

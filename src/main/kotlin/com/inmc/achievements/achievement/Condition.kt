@@ -48,16 +48,26 @@ sealed interface Condition {
      * `getStatistic(WALK_ONE_CM)` 은 공짜다.
      *
      * 경고: `OfflinePlayer` 에는 `getStatistic` 이 없다. 이 갈래는 접속 중에만 진행한다.
+     *
+     * 대상은 **여러 개**일 수 있고 진행도는 그 합이다(2026-10-07 사용자 요청) — 다이아몬드 광석과 심층암 다이아몬드 광석,
+     * 좀비와 허스크처럼 바닐라가 따로 세는 것을 한 업적으로. 대상은 [Stat.of] 로 만들어 정렬·중복 제거한다.
      */
     data class Stat(
         val statistic: Statistic,
-        val material: Material? = null,
-        val entity: EntityType? = null,
+        val materials: List<Material> = emptyList(),
+        val entities: List<EntityType> = emptyList(),
     ) : Condition {
 
+        /**
+         * 대상이 하나면 예전과 **같은 지문**(`stat|MINE_BLOCK|OAK_LOG`)이다 — 대상을 목록으로 바꾼 것만으로 진행도·초기화 기준점이
+         * 버려지면 안 된다. 여럿이면 이름순으로 `,` 로 잇는다(순서만 다른 두 조건이 같은 지문을 내게 — 규칙 7).
+         */
         override val signature: String
-            get() = listOfNotNull("stat", statistic.name, material?.name ?: entity?.name)
-                .joinToString(SEP.toString())
+            get() {
+                val targets = (materials.map { it.name } + entities.map { it.name }).distinct().sorted()
+                return (listOf("stat", statistic.name) + listOfNotNull(targets.takeIf { it.isNotEmpty() }?.joinToString(",")))
+                    .joinToString(SEP.toString())
+            }
 
         /**
          * 인자 수가 맞는지. **정의를 저장할 때 검사하고 스윕 안에서는 절대 검사하지 않는다.**
@@ -66,16 +76,30 @@ sealed interface Condition {
          * 이 난다. 그걸 5초마다 도는 스윕 안에서 맞으면 한 사람이 터져 나머지가 건너뛰어진다.
          */
         fun isWellFormed(): Boolean = when (statistic.type) {
-            Statistic.Type.UNTYPED -> material == null && entity == null
-            Statistic.Type.ITEM, Statistic.Type.BLOCK -> material != null && entity == null
-            Statistic.Type.ENTITY -> entity != null && material == null
+            Statistic.Type.UNTYPED -> materials.isEmpty() && entities.isEmpty()
+            Statistic.Type.ITEM, Statistic.Type.BLOCK -> materials.isNotEmpty() && entities.isEmpty()
+            Statistic.Type.ENTITY -> entities.isNotEmpty() && materials.isEmpty()
         }
 
+        /** 하나면 예전처럼 `material:`/`entity:` 한 줄, 여럿이면 `materials:`/`entities:` 목록. */
         override fun save(section: ConfigurationSection) {
             section.set("kind", "STATISTIC")
             section.set("statistic", statistic.name)
-            material?.let { section.set("material", it.name) }
-            entity?.let { section.set("entity", it.name) }
+            when (materials.size) {
+                0 -> {}
+                1 -> section.set("material", materials.single().name)
+                else -> section.set("materials", materials.map { it.name })
+            }
+            when (entities.size) {
+                0 -> {}
+                1 -> section.set("entity", entities.single().name)
+                else -> section.set("entities", entities.map { it.name })
+            }
+        }
+
+        companion object {
+            fun of(statistic: Statistic, materials: Collection<Material> = emptyList(), entities: Collection<EntityType> = emptyList()) =
+                Stat(statistic, materials.distinct().sortedBy { it.name }, entities.distinct().sortedBy { it.name })
         }
     }
 
@@ -188,12 +212,16 @@ sealed interface Condition {
             return Custom(kind, section.getString("value")?.trim().orEmpty())
         }
 
+        /** `material:`·`materials:` 둘 다, 한 줄이든 목록이든 받는다. 모르는 이름은 빠진다(예전 한 줄일 때와 같다). */
         private fun loadStat(section: ConfigurationSection): Stat? {
             val statistic = enumOrNull<Statistic>(section.getString("statistic")) ?: return null
-            return Stat(
+            fun names(vararg keys: String) = keys.flatMap { key ->
+                if (section.isList(key)) section.getStringList(key) else listOfNotNull(section.getString(key))
+            }
+            return Stat.of(
                 statistic = statistic,
-                material = enumOrNull<Material>(section.getString("material")),
-                entity = enumOrNull<EntityType>(section.getString("entity")),
+                materials = names("material", "materials").mapNotNull { enumOrNull<Material>(it) },
+                entities = names("entity", "entities").mapNotNull { enumOrNull<EntityType>(it) },
             )
         }
 

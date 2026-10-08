@@ -115,6 +115,25 @@ class AchievementCommand(private val ach: Achievements) {
                 },
             )
             .then(
+                // 그 사람 기준의 업적 목록(진행도·단계·히든까지) — "왜 안 오르지?"를 그 사람 화면 없이 본다(2026-10-08).
+                Commands.literal("보기").then(
+                    Commands.argument("대상", StringArgumentType.word())
+                        .suggests(players)
+                        .executes { context ->
+                            val viewer = asPlayer(context.source) ?: return@executes 0
+                            if (!guardReady(viewer)) return@executes 0
+                            val name = StringArgumentType.getString(context, "대상")
+                            val target = Bukkit.getPlayerExact(name) ?: Bukkit.getOfflinePlayerIfCached(name)
+                            if (target == null) {
+                                ach.tell(viewer, "player-not-found")
+                                return@executes 0
+                            }
+                            BrowseMenu(ach, viewer, subject = target.uniqueId, subjectName = target.name ?: name).open(viewer)
+                            1
+                        },
+                ),
+            )
+            .then(
                 Commands.literal("미지급").executes { context ->
                     unpaid(context.source.sender)
                     1
@@ -154,6 +173,32 @@ class AchievementCommand(private val ach: Achievements) {
                     ),
             )
             .then(
+                // 서버 안 자동 검증(2026-10-08) — 신호 → 진행 → 완료 → 기록 → 초기화 · 지급/회수 · 토스트 · 타이틀포지 · 화면.
+                Commands.literal("검증").executes { context ->
+                    val player = asPlayer(context.source) ?: return@executes 0
+                    com.inmc.achievements.verify.Verifier(ach).run(player)
+                    1
+                },
+            )
+            .then(
+                // 관리자 시험 도구(2026-10-08) — 연출(토스트·타이틀·소리·폭죽·입자)을 달성 없이 나에게. 공지 문구는 나에게만.
+                Commands.literal("연출").then(
+                    Commands.argument("업적", StringArgumentType.greedyString())
+                        .suggests(achievementIds)
+                        .executes { context ->
+                            val player = asPlayer(context.source) ?: return@executes 0
+                            val achievement = ach.registry.find(StringArgumentType.getString(context, "업적"))
+                            if (achievement == null) {
+                                ach.tell(player, "not-found")
+                                return@executes 0
+                            }
+                            ach.celebrations.preview(player, achievement)
+                            player.sendMessage(kr.inmc.core.util.Text.render("<gray>'${achievement.display}' 의 연출을 미리 보여 줬습니다 — 기록·보상은 없습니다.</gray>"))
+                            1
+                        },
+                ),
+            )
+            .then(
                 Commands.literal("초기화")
                     .then(
                         Commands.argument("대상", StringArgumentType.word())
@@ -172,6 +217,7 @@ class AchievementCommand(private val ach: Achievements) {
                             ),
                     ),
             )
+            .then(signalTree())
 
     // --- 동작 -----------------------------------------------------------------------
 
@@ -244,6 +290,7 @@ class AchievementCommand(private val ach: Achievements) {
         }
         val summary = ach.service.reset(target.uniqueId, achievement?.uid)
         val name = target.name.orEmpty()
+        if (summary.titles > 0) ach.tell(sender, "admin-reset-titles", ach.ph().player(name).count(summary.titles.toLong()))
         if (summary.tiers == 0 && summary.progress == 0 && summary.firsts == 0 &&
             summary.mailbox == 0 && summary.queued == 0
         ) {
@@ -295,6 +342,63 @@ class AchievementCommand(private val ach: Achievements) {
             if (total == 0) "admin-unpaid-none" else "admin-unpaid",
             ach.ph().count(total.toLong()),
         )
+    }
+
+    // --- 신호 직접 쏘기 (관리자 시험 도구, 2026-10-08) -------------------------------------------------------
+
+    private val signalSources = SuggestionProvider<CommandSourceStack> { _, builder ->
+        kr.inmc.core.event.SignalCatalog.all().map { it.source }.distinct().forEach(builder::suggest)
+        builder.buildFuture()
+    }
+
+    private val signalTypes = SuggestionProvider<CommandSourceStack> { context, builder ->
+        val source = StringArgumentType.getString(context, "출처")
+        kr.inmc.core.event.SignalCatalog.all().filter { it.source == source }.forEach { builder.suggest(it.type) }
+        builder.buildFuture()
+    }
+
+    private val signalRest = SuggestionProvider<CommandSourceStack> { context, builder ->
+        builder.suggest("-")
+        val entry = kr.inmc.core.event.SignalCatalog.get(StringArgumentType.getString(context, "출처"), StringArgumentType.getString(context, "종류"))
+        entry?.subjects?.invoke()?.forEach { (id, _) -> builder.suggest(id) }
+        builder.buildFuture()
+    }
+
+    /**
+     * `/업적 관리 신호 <출처> <종류> [대상|-] [수] [키=값 …]` — 그 신호를 **쏜 사람 자신에게** 쏜다. 낚시·디스코드·상점처럼 다른 플러그인 사건으로
+     * 세는 업적을 그 플러그인을 돌리지 않고 확인한다. 진짜 신호와 같은 길(core `InmcSignalEvent`)이라 업적 쪽 처리가 그대로 돈다.
+     * 대상 뒤는 통째로 받아 나눈다 — Brigadier word 인자는 `minecraft:dirt` 의 `:`·한글을 못 받는다.
+     */
+    private fun signalTree(): LiteralArgumentBuilder<CommandSourceStack> {
+        fun run(context: com.mojang.brigadier.context.CommandContext<CommandSourceStack>, rest: String): Int {
+            val player = asPlayer(context.source) ?: return 0
+            if (!guardReady(player)) return 0
+            val source = StringArgumentType.getString(context, "출처")
+            val type = StringArgumentType.getString(context, "종류")
+            val tokens = rest.trim().split(' ').filter { it.isNotEmpty() }
+            val subject = tokens.getOrNull(0)?.takeIf { it != "-" }.orEmpty()
+            val amount = tokens.getOrNull(1)?.toLongOrNull()?.coerceIn(1, 1_000_000) ?: 1L
+            val values = tokens.drop(2).mapNotNull { pair ->
+                pair.split('=', limit = 2).takeIf { it.size == 2 && it[0].isNotBlank() }?.let { it[0] to it[1] }
+            }.toMap()
+            kr.inmc.core.event.InmcSignalEvent.fire(source, type, player.uniqueId, subject, amount, player) { values }
+            val shown = "$source/$type" + (if (subject.isEmpty()) "" else " · $subject") +
+                (if (values.isEmpty()) "" else " · " + values.entries.joinToString(" ") { "${it.key}=${it.value}" })
+            ach.tell(player, "admin-signal-sent", ach.ph().reason(shown).count(amount))
+            return 1
+        }
+        return Commands.literal("신호")
+            .executes { context -> asPlayer(context.source)?.let { ach.tell(it, "admin-signal-usage") }; 0 }
+            .then(
+                Commands.argument("출처", StringArgumentType.word()).suggests(signalSources).then(
+                    Commands.argument("종류", StringArgumentType.word()).suggests(signalTypes)
+                        .executes { run(it, "") }
+                        .then(
+                            Commands.argument("나머지", StringArgumentType.greedyString()).suggests(signalRest)
+                                .executes { run(it, StringArgumentType.getString(it, "나머지")) },
+                        ),
+                ),
+            )
     }
 
     private fun asPlayer(source: CommandSourceStack): Player? {

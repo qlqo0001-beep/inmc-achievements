@@ -169,7 +169,8 @@ data class Achievement(
  *
  * "지금부터만 센다"(NONE)는 두지 않는다 — 통계 갈래에서 그걸 하려면 플레이어×업적마다
  * 기준값을 저장해야 하고, 그 순간 "통계 갈래는 아무것도 저장하지 않는다"가 무너진다.
- * 지금부터만 세고 싶으면 그건 신호(SIGNAL) 조건이다.
+ * 지금부터만 세고 싶으면 그건 신호(SIGNAL) 조건이다. (관리자 초기화의 기준점은 예외 — 초기화한
+ * 사람·업적에만 생긴다. `AchievementCounters.rebase`)
  */
 enum class Retroactive(val display: String) {
     /** 보상은 주고 연출·공지는 생략. 서버 최초 경쟁에도 들지 않는다. */

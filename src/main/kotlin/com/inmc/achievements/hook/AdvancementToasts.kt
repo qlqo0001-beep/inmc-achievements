@@ -35,6 +35,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 그래서 **enable 때 한 번 등록**한다. 새로 만든 업적은 처음 보는 키라 그때그때 등록되지만,
  * **기존 업적의 아이콘·제목 편집은 재시작해야 반영된다.** 편집 화면이 그렇게 말한다.
  *
+ * ## 서버가 품은 API 가 오래되면 하나씩
+ *
+ * 일괄 API `loadAdvancements(Map, boolean)` 는 paper-api 26.2 에 생겼다. 테섭 Leaf 26.2 build 46 은 26.1.2 를 품고 있어
+ * `NoSuchMethodError` 가 났고, 그 뒤로 토스트가 한 번도 안 떴다(2026-10-08). 그 서버에서는 옛 단수 API
+ * `loadAdvancement(key, json)` 로 하나씩 등록한다 — 그것은 **저장형**(`world/datapacks/bukkit`)이라 끌 때
+ * [unregisterPersisted] 로 지워, 다음 켤 때 지금 정의로 다시 등록되게 한다. 크래시로 못 지웠으면 "이미 있음" 을 그대로 쓴다.
+ *
  * 키는 `inmc_ach:<uid>` 다. uid 가 ASCII 라 `NamespacedKey` 에 그대로 들어간다 — 업적 이름은
  * 한글일 수 있고 그러면 **지급하는 순간** `IllegalArgumentException` 이 났을 것이다.
  */
@@ -47,6 +54,12 @@ class AdvancementToasts(private val ach: Achievements) {
 
     private val warned = AtomicBoolean(false)
     private val registered = HashSet<String>()
+
+    /** 일괄 API(`loadAdvancements`)가 있나. null = 아직 안 불러 봄. 없는 서버(Leaf 26.2 build 46)는 하나씩 간다. */
+    private var batchApi: Boolean? = null
+
+    /** 하나씩 등록한 키 — 그 API 는 **저장형**(`world/datapacks/bukkit`)이라 끌 때 지워 둔다. */
+    private val persisted = HashSet<NamespacedKey>()
 
     fun isEnabled(): Boolean = available && ach.config.advancementToasts
 
@@ -63,14 +76,48 @@ class AdvancementToasts(private val ach: Achievements) {
             return
         }
         runCatching {
-            @Suppress("DEPRECATION")
-            Bukkit.getUnsafe().loadAdvancements(
-                batch.mapKeys { it.key as net.kyori.adventure.key.Key },
-                false,
-            )
+            if (batchApi != false) {
+                try {
+                    @Suppress("DEPRECATION")
+                    Bukkit.getUnsafe().loadAdvancements(
+                        batch.mapKeys { it.key as net.kyori.adventure.key.Key },
+                        false,
+                    )
+                    batchApi = true
+                } catch (_: NoSuchMethodError) {
+                    // 서버가 품은 API 가 컴파일 대상보다 오래되면(Leaf 26.2 build 46 = paper-api 26.1.2) 일괄 API 가 없다.
+                    // 옛 단수 API 로 하나씩 — 저장형이라 [unregisterPersisted] 가 끌 때 지운다.
+                    batchApi = false
+                    loadOneByOne(batch)
+                }
+            } else {
+                loadOneByOne(batch)
+            }
             registered += achievements.map { it.uid }
             available = true
         }.onFailure { fail(it) }
+    }
+
+    private fun loadOneByOne(batch: Map<NamespacedKey, String>) {
+        for ((key, json) in batch) {
+            try {
+                @Suppress("DEPRECATION")
+                Bukkit.getUnsafe().loadAdvancement(key, json)
+            } catch (e: IllegalArgumentException) {
+                // 지난 세션이 저장해 둔 것(크래시로 못 지웠을 때) — 그대로 쓴다. 장식 편집은 다음 재시작에 반영된다.
+                if (e.message?.contains("exist", ignoreCase = true) != true) throw e
+            }
+            persisted += key
+        }
+    }
+
+    /** 끌 때 — 하나씩 등록한 것은 저장형이라 지워 둔다. 다음 켤 때 지금 정의로 새로 등록된다. */
+    fun unregisterPersisted() {
+        for (key in persisted) {
+            @Suppress("DEPRECATION")
+            runCatching { Bukkit.getUnsafe().removeAdvancement(key) }
+        }
+        persisted.clear()
     }
 
     /** 세션 중에 새로 만든 업적 하나. */

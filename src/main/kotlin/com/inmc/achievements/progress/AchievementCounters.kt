@@ -30,6 +30,8 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * 여기 있는 것은 **잃어도 다시 쌓으면 그만인 것**뿐이다. 받은 보상의 기록(claim)은
  * [com.inmc.achievements.claim.ClaimStore] 가 따로, 훨씬 엄격하게 들고 있다.
+ * 예외 하나: 관리자 초기화(진행도 지우기·기준점·기다림)도 이 30초 저장 창을 탄다. 초기화 직후 그 창 안에 서버가 죽으면
+ * 달성 기록(즉시 지워짐)만 지워진 채 옛 진행도가 되살아나 다시 달성된다 — 드문 경우라 받아들였다(core 에 한 사람 저장이 없다).
  */
 class AchievementCounters {
 
@@ -38,6 +40,15 @@ class AchievementCounters {
         @Volatile var signature: String = ""
         @Volatile var readAt: Long = 0L
         @Volatile var discoveredAt: Long = 0L
+
+        /** 초기화 기준점 — 읽어 오는 값(통계·상태·평가기 커스텀)에서 뺀다. [count] 는 뺀 뒤의 값이다. */
+        @Volatile var base: Long = 0L
+
+        /** 다음에 읽은 값을 기준점으로 삼는다(초기화 직후). */
+        @Volatile var rebase: Boolean = false
+
+        /** 지역·커스텀 발견이 한 번 거짓이 될 때까지 다시 열리지 않는다(초기화 직후). */
+        @Volatile var discoverWait: Boolean = false
     }
 
     private val players = ConcurrentHashMap<UUID, ConcurrentHashMap<String, Progress>>()
@@ -123,8 +134,69 @@ class AchievementCounters {
         val entry = progress(playerId, uid)
         if (entry.discoveredAt > 0L) return false
         entry.discoveredAt = now
+        entry.discoverWait = false
         touched.add(playerId)
         return true
+    }
+
+    // --- 초기화 뒤 (사용자 결정 2026-10-07: "초기화 뒤에 새로 한 것만 다시 준다") ------------------
+
+    /**
+     * 읽어 온 값에서 초기화 기준점을 뺀다. 기준점이 없으면(거의 전부) 그대로 돌려준다.
+     *
+     * 통계·상태·평가기 커스텀은 우리가 세지 않고 읽어 오는 값이라 초기화로 지워지지 않는다 — 그대로 두면
+     * 다음 스윕이 곧바로 다시 달성시켜 보상이 또 나간다. 메모리에 올라온 사람만. 아니면 [sinceResetOffline].
+     */
+    fun sinceReset(playerId: UUID, uid: String, signature: String, raw: Long): Long {
+        val entry = players[playerId]?.get(uid) ?: return raw
+        if (entry.base == 0L && !entry.rebase) return raw
+        val next = rebase(entry.base, entry.rebase, entry.signature, signature, raw)
+        if (next.base != entry.base || entry.rebase) {
+            entry.base = next.base
+            entry.rebase = false
+            touched.add(playerId)
+        }
+        return next.progress
+    }
+
+    fun sinceResetOffline(store: PlayerStore, playerId: UUID, uid: String, signature: String, raw: Long): Long {
+        val base = store.getLong(playerId, NAMESPACE, uid, FIELD_BASE)
+        val pending = store.getLong(playerId, NAMESPACE, uid, FIELD_REBASE) > 0L
+        if (base == 0L && !pending) return raw
+        val next = rebase(base, pending, storedSignature(store, playerId, uid), signature, raw)
+        store.set(playerId, NAMESPACE, uid, FIELD_BASE, next.base.takeIf { it > 0L })
+        store.set(playerId, NAMESPACE, uid, FIELD_REBASE, null)
+        return next.progress
+    }
+
+    /** 초기화 표시. [clear] 뒤에 부른다. 메모리에 올라온 사람만 — 아니면 [markResetOffline]. */
+    fun markReset(playerId: UUID, uid: String, rebase: Boolean, discoverWait: Boolean) {
+        val entry = progress(playerId, uid)
+        entry.rebase = rebase
+        entry.discoverWait = discoverWait
+        touched.add(playerId)
+    }
+
+    fun markResetOffline(store: PlayerStore, playerId: UUID, uid: String, rebase: Boolean, discoverWait: Boolean) {
+        if (rebase) store.set(playerId, NAMESPACE, uid, FIELD_REBASE, 1L)
+        if (discoverWait) store.set(playerId, NAMESPACE, uid, FIELD_DISCOVER_WAIT, 1L)
+    }
+
+    fun discoverWaiting(playerId: UUID, uid: String): Boolean = players[playerId]?.get(uid)?.discoverWait == true
+
+    fun storedDiscoverWaiting(store: PlayerStore, playerId: UUID, uid: String): Boolean =
+        store.getLong(playerId, NAMESPACE, uid, FIELD_DISCOVER_WAIT) > 0L
+
+    /** 발견 조건이 거짓인 것을 봤다 — 이제 다시 참이 되면 열린다. */
+    fun releaseDiscoverWait(playerId: UUID, uid: String) {
+        val entry = players[playerId]?.get(uid) ?: return
+        if (!entry.discoverWait) return
+        entry.discoverWait = false
+        touched.add(playerId)
+    }
+
+    fun releaseDiscoverWaitOffline(store: PlayerStore, playerId: UUID, uid: String) {
+        store.set(playerId, NAMESPACE, uid, FIELD_DISCOVER_WAIT, null)
     }
 
     private fun progress(playerId: UUID, uid: String): Progress =
@@ -160,6 +232,7 @@ class AchievementCounters {
     fun discoverOffline(store: PlayerStore, playerId: UUID, uid: String, now: Long): Boolean {
         if (store.getLong(playerId, NAMESPACE, uid, FIELD_DISCOVERED) > 0L) return false
         store.set(playerId, NAMESPACE, uid, FIELD_DISCOVERED, now)
+        store.set(playerId, NAMESPACE, uid, FIELD_DISCOVER_WAIT, null)
         return true
     }
 
@@ -188,6 +261,9 @@ class AchievementCounters {
             entry.signature = store.getString(playerId, NAMESPACE, uid, FIELD_SIG).orEmpty()
             entry.readAt = store.getLong(playerId, NAMESPACE, uid, FIELD_READ_AT)
             entry.discoveredAt = store.getLong(playerId, NAMESPACE, uid, FIELD_DISCOVERED)
+            entry.base = store.getLong(playerId, NAMESPACE, uid, FIELD_BASE)
+            entry.rebase = store.getLong(playerId, NAMESPACE, uid, FIELD_REBASE) > 0L
+            entry.discoverWait = store.getLong(playerId, NAMESPACE, uid, FIELD_DISCOVER_WAIT) > 0L
             entries[uid] = entry
         }
         players[playerId] = entries
@@ -220,8 +296,20 @@ class AchievementCounters {
                 if (entry.discoveredAt > 0L) {
                     store.set(id, NAMESPACE, uid, FIELD_DISCOVERED, entry.discoveredAt)
                 }
+                syncField(store, id, uid, FIELD_BASE, entry.base.takeIf { it > 0L })
+                syncField(store, id, uid, FIELD_REBASE, if (entry.rebase) 1L else null)
+                syncField(store, id, uid, FIELD_DISCOVER_WAIT, if (entry.discoverWait) 1L else null)
             }
         }
+    }
+
+    /**
+     * 초기화 필드. 풀렸으면 키를 지운다 — 남겨 두면 다음 적재가 되살린다. 거의 늘 없는 키라 읽어 보고 있을 때만
+     * 지운다(`set` 은 문자열 검사와 dirty 표시가 붙는다).
+     */
+    private fun syncField(store: PlayerStore, id: UUID, uid: String, field: String, value: Long?) {
+        if (value != null) store.set(id, NAMESPACE, uid, field, value)
+        else if (store.getLong(id, NAMESPACE, uid, field) != 0L) store.set(id, NAMESPACE, uid, field, null)
     }
 
     /** 퇴장. 부르는 쪽이 [syncTo] 를 먼저 한다. */
@@ -252,7 +340,9 @@ class AchievementCounters {
         } else {
             val storeSubjects = store.subjects(playerId, NAMESPACE)
             removed = (memory?.keys?.toSet().orEmpty() + storeSubjects).size
-            players.remove(playerId)
+            // 접속 중이면 빈 채로 올려 둔다. 내리면 접속자가 "안 올라온 사람" 이 되어 다음 신호는 저장소로,
+            // 다음 스윕은 메모리로 가 둘이 갈라진다(머리말의 경고).
+            if (memory != null) players[playerId] = ConcurrentHashMap()
             store.clear(playerId, NAMESPACE)
             touched.remove(playerId)
         }
@@ -264,11 +354,32 @@ class AchievementCounters {
         touched.clear()
     }
 
+    /** 기준점을 고친 값과 기준점을 뺀 진행도. */
+    data class Rebased(val base: Long, val progress: Long)
+
     companion object {
         const val NAMESPACE = "achievements"
         const val FIELD_COUNT = "count"
         const val FIELD_SIG = "sig"
         const val FIELD_READ_AT = "read-at"
         const val FIELD_DISCOVERED = "discovered-at"
+        const val FIELD_BASE = "base"
+        const val FIELD_REBASE = "rebase"
+        const val FIELD_DISCOVER_WAIT = "discover-wait"
+
+        /**
+         * 초기화 기준점 계산(순수).
+         *
+         *  - 초기화 직후([pending])면 지금 값이 기준점 — 진행도 0
+         *  - 조건이 바뀌었으면([savedSignature] 가 다름) 기준점은 옛 조건의 것 — 버린다
+         *  - 값이 기준점 아래로 내려가면 기준점도 내려간다. 상태 조건(0/1)이 그래서 "한 번 풀렸다가 다시 충족돼야"
+         *    달성된다. 통계는 줄지 않으니 해당 없다
+         */
+        fun rebase(base: Long, pending: Boolean, savedSignature: String?, signature: String, raw: Long): Rebased = when {
+            pending -> Rebased(raw, 0L)
+            !savedSignature.isNullOrEmpty() && savedSignature != signature -> Rebased(0L, raw)
+            raw < base -> Rebased(raw, 0L)
+            else -> Rebased(base, raw - base)
+        }
     }
 }
