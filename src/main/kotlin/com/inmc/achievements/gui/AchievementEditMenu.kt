@@ -5,9 +5,11 @@ import com.inmc.achievements.achievement.Achievement
 import com.inmc.achievements.achievement.Category
 import kr.inmc.core.gui.Editors
 import kr.inmc.core.gui.Icon
+import kr.inmc.core.gui.ItemInputMenu
 import kr.inmc.core.util.Text
 import org.bukkit.Material
 import org.bukkit.entity.Player
+import org.bukkit.inventory.ItemStack
 
 /**
  * 업적 설정 허브.
@@ -68,11 +70,13 @@ class AchievementEditMenu(
         set(SLOT_ICON, Icon.of(item.icon, "<yellow>아이콘</yellow>", listOf(
             "<gray>" + item.icon.name + "</gray>",
             "",
-            "<yellow>▶ 클릭: 손에 든 것으로</yellow>",
+            "<yellow>▶ 클릭: 아이템 올리기</yellow>",
         ))) {
-            val held = viewer.inventory.itemInMainHand
-            if (held.type.isAir) return@set
-            mutate { it.copy(icon = held.type) }
+            ItemInputMenu(ach, viewer, "업적 아이콘", listOf("<gray>업적 목록에 보이는 아이콘(재질만 씁니다).</gray>"),
+                initial = item.icon.takeIf { it.isItem }?.let { ItemStack(it) }, back = { open() }) { stack ->
+                mutate(reopen = false) { it.copy(icon = stack.type) }
+                open()
+            }.show()
         }
 
         set(SLOT_CATEGORY, Icon.of(

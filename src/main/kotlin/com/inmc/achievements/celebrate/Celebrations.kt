@@ -3,6 +3,8 @@ package com.inmc.achievements.celebrate
 import com.inmc.achievements.Achievements
 import com.inmc.achievements.achievement.Celebration
 import com.inmc.achievements.claim.CompletionSnapshot
+import kr.inmc.core.integration.Vanish
+import kr.inmc.core.util.Particles
 import kr.inmc.core.util.Text
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.title.Title
@@ -55,14 +57,14 @@ class Celebrations(private val ach: Achievements) {
 
         if (celebration == null) {
             // 전용 연출이 없어도 최초 달성은 알린다. 그게 이 기능의 요점이다.
-            Bukkit.broadcast(ach.messageComponent("first-clear", ph))
+            toServer(player, ach.messageComponent("first-clear", ph))
             return
         }
         if (player != null) personal(player, snapshot, celebration)
         if (celebration.broadcast.isNotBlank()) {
             broadcast(celebration, player, Text.renderFlat(celebration.broadcast, ph))
         } else {
-            Bukkit.broadcast(ach.messageComponent("first-clear", ph))
+            toServer(player, ach.messageComponent("first-clear", ph))
         }
     }
 
@@ -111,26 +113,47 @@ class Celebrations(private val ach: Achievements) {
             )
         }
         if (celebration.sound.isNotBlank()) playSound(player, celebration.sound)
-        if (celebration.firework) firework(player.location)
-        if (celebration.particle.isNotBlank()) particles(player.location, celebration.particle)
+        // 폭죽은 진짜 개체라 주변 모두가 본다 — 투명이면 자리가 드러나니 건너뛰고, 입자는 본인에게만 보낸다(2026-10-10).
+        val vanished = Vanish.isVanished(player)
+        if (celebration.firework && !vanished) firework(player.location)
+        if (celebration.particle.isNotBlank()) particles(player, celebration.particle, onlySelf = vanished)
     }
 
-    /** 범위대로 보낸다. 본인은 이미 [personal] 에서 받았으므로 빼지 않는다 — 공지는 공지다. */
+    /**
+     * 범위대로 보낸다. 본인은 이미 [personal] 에서 받았으므로 빼지 않는다 — 공지는 공지다.
+     *
+     * 투명인 사람의 달성은 **그를 볼 수 있는 사람(본인·`inmc.vanish.see`·콘솔)에게만** 간다(2026-10-10) — 이름이 공지로 새면
+     * 투명이 들킨다. 투명이 아니면 전과 같다.
+     */
     private fun broadcast(celebration: Celebration, player: Player?, message: Component) {
         when (celebration.scope) {
             Celebration.Scope.SELF -> player?.sendMessage(message)
-            Celebration.Scope.SERVER -> Bukkit.broadcast(message)
-            Celebration.Scope.WORLD -> player?.world?.players?.forEach { it.sendMessage(message) }
+            Celebration.Scope.SERVER -> toServer(player, message)
+            Celebration.Scope.WORLD -> {
+                val actor = player ?: return
+                actor.world.players.forEach { if (Vanish.canSee(it, actor)) it.sendMessage(message) }
+            }
             Celebration.Scope.NEARBY -> {
-                val origin = player?.location ?: return
+                val actor = player ?: return
+                val origin = actor.location
                 val radiusSquared = celebration.radius.toDouble() * celebration.radius
                 for (nearby in origin.world.players) {
-                    if (nearby.location.distanceSquared(origin) <= radiusSquared) {
+                    if (nearby.location.distanceSquared(origin) <= radiusSquared && Vanish.canSee(nearby, actor)) {
                         nearby.sendMessage(message)
                     }
                 }
             }
         }
+    }
+
+    /** 서버 전체 공지. [player] 가 투명이면 그를 볼 수 있는 사람과 콘솔에게만. 오프라인(null)이면 투명일 수 없어 전체. */
+    private fun toServer(player: Player?, message: Component) {
+        if (player == null || !Vanish.isVanished(player)) {
+            Bukkit.broadcast(message)
+            return
+        }
+        Bukkit.getConsoleSender().sendMessage(message)
+        for (online in Bukkit.getOnlinePlayers()) if (Vanish.canSee(online, player)) online.sendMessage(message)
     }
 
     // --- 낱개 효과. 전부 감싼다 — 관리자 오타로 서버가 멈추면 안 된다 -------------------
@@ -183,12 +206,14 @@ class Celebrations(private val ach: Achievements) {
         }
     }
 
-    private fun particles(location: Location, raw: String) {
-        val world = location.world ?: return
+    /** [onlySelf] 면 [player] 에게만 보인다(투명). 아니면 월드에 — 주변 사람도 본다. */
+    private fun particles(player: Player, raw: String, onlySelf: Boolean) {
         val name = raw.trim().uppercase().replace('.', '_')
         val particle = runCatching { Particle.valueOf(name) }.getOrNull() ?: return
-        // 데이터가 필요한 입자는 3인자 호출에서 던진다. 감싸서 그 종류만 건너뛴다.
-        runCatching { world.spawnParticle(particle, location.clone().add(0.0, 1.0, 0.0), 40, 0.5, 0.8, 0.5, 0.02) }
+        val at = player.location.clone().add(0.0, 1.0, 0.0)
+        // 색·블록 자료가 필요한 입자(먼지 …)는 core 가 기본 자료를 채운다 — 고르는 화면의 미리보기와 같은 모습(2026-10-14).
+        if (onlySelf) Particles.show(player, particle, at, 40, 0.5, 0.8, 0.5, 0.02)
+        else Particles.spawn(particle, at, 40, 0.5, 0.8, 0.5, 0.02)
     }
 
     private fun nameOf(snapshot: CompletionSnapshot): String =

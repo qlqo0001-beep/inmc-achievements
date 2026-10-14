@@ -10,7 +10,9 @@ import kr.inmc.core.gui.ConfirmMenu
 import kr.inmc.core.gui.Editors
 import kr.inmc.core.gui.Icon
 import kr.inmc.core.gui.Paging
+import kr.inmc.core.gui.ParticlePickMenu
 import kr.inmc.core.store.DefinitionKey
+import kr.inmc.core.util.Particles
 import kr.inmc.core.util.Text
 import org.bukkit.Location
 import org.bukkit.Material
@@ -96,8 +98,16 @@ class CelebrationMenu(
         set(SLOT_SOUND, textIcon(Material.NOTE_BLOCK, "소리", celebration.sound)) {
             askText("소리 이름 (예: ENTITY_PLAYER_LEVELUP)") { value -> mutate { it.copy(sound = value) } }
         }
-        set(SLOT_PARTICLE, textIcon(Material.BLAZE_POWDER, "입자", celebration.particle)) {
-            askText("입자 이름 (예: TOTEM_OF_UNDYING)") { value -> mutate { it.copy(particle = value) } }
+        set(SLOT_PARTICLE, Icon.of(Material.BLAZE_POWDER, "<yellow>입자</yellow>", listOf(
+            "<white>" + (if (celebration.particle.isBlank()) "(없음)" else Particles.name(celebration.particle)) + "</white>",
+            "", "<yellow>▶ 클릭: 고르기</yellow>", "<red>▶ 우클릭: 비우기</red>",
+        ))) { event ->
+            if (event.isRightClick) return@set mutate { it.copy(particle = "") }
+            // 적는 값은 전과 같은 대문자 이름(TOTEM_OF_UNDYING) — Celebrations 가 Particle.valueOf 로 읽는다.
+            ParticlePickMenu(ach, ach.plugin, viewer, current = celebration.particle.ifBlank { null }, back = { open(viewer) }) { particle ->
+                mutate { it.copy(particle = particle.name) }
+                open(viewer)
+            }.show()
         }
         set(SLOT_BROADCAST, textIcon(Material.PAPER, "공지 문구", celebration.broadcast)) {
             askText("공지 문구 ({플레이어} {업적} 사용 가능)") { value -> mutate { it.copy(broadcast = value) } }
