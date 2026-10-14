@@ -7,12 +7,12 @@ import com.inmc.achievements.achievement.Tier
 import kr.inmc.core.gui.ConfirmMenu
 import kr.inmc.core.gui.Editors
 import kr.inmc.core.gui.Icon
-import kr.inmc.core.reward.GiveMode
+import kr.inmc.core.gui.RewardBundleEditor
 import kr.inmc.core.reward.RewardBundle
-import kr.inmc.core.reward.RewardEntry
 import kr.inmc.core.util.Text
 import org.bukkit.Material
 import org.bukkit.entity.Player
+import org.bukkit.event.inventory.InventoryClickEvent
 
 /**
  * 단계 목록.
@@ -244,7 +244,7 @@ class TierEditMenu(
         }
 
         set(SLOT_REWARDS, Icon.of(Material.CHEST, "<yellow>보상</yellow>", rewardLore(tier.rewards))) {
-            RewardMenu(ach, viewer, uid, tierId, first = false).open(viewer)
+            RewardMenu.open(ach, viewer, uid, tierId, first = false)
         }
 
         set(SLOT_FIRST, Icon.of(
@@ -266,7 +266,7 @@ class TierEditMenu(
             when {
                 tier.firstOnServer == null -> mutate { it.copy(firstOnServer = FirstClear()) }
                 event.isRightClick -> mutate { it.copy(firstOnServer = null) }
-                else -> RewardMenu(ach, viewer, uid, tierId, first = true).open(viewer)
+                else -> RewardMenu.open(ach, viewer, uid, tierId, first = true)
             }
         }
 
@@ -304,114 +304,85 @@ class TierEditMenu(
 }
 
 /**
- * 보상 편집. core 의 [RewardBundle] 을 그대로 쓴다 — 일곱 번째 보상 모양을 만들지 않는다.
+ * 보상 편집 — core [RewardBundleEditor] 를 연다(2026-10-10, 사용자 결정: 킷·업적이 core 편집기 하나를 같이 쓴다).
+ * 끌어 넣기 → 확인 · 제거 모드 · 쪽 · 상세(확률·수량·참조/스냅샷·돈과 화폐·명령어)가 그쪽에 있다. 칭호·점수·연출처럼
+ * [RewardBundle] 이 아닌 업적 보상은 [TierEditMenu] 에 그대로 남는다.
  *
- * `announce` 는 건드리지 않는다. 그쪽을 켜면 연출의 공지와 겹쳐 **두 번 나간다.**
+ * 번들은 가변이라 편집기가 그 자리에서 고친다 — 저장은 정의를 다시 넣어 dirty 로 찍고 검사(`Menu.store`)를 지나게 하는 것뿐.
+ * **편집기는 번들 객체를 쥐므로** 저장할 때마다 uid 로 정의를 다시 찾아 그 번들이 아직 그 자리에 있는지 본다(규칙 46) — 업적이
+ * 지워졌거나 서버 최초 보상을 껐다 켜 새 번들이 됐으면 저장하지 않고 닫는다(버려진 번들을 고치는 것이 저장된 줄 알게 두지 않는다).
+ * 본 화면의 클릭은 **누르기 전에** 걸러 core 의 "등록했습니다" 가 나가지 않게 하고, 상세·입력창에서 오는 저장은 저장 쪽에서 거른다.
+ *
+ * 상세 화면의 공지(`announce`)는 업적에서 쓰지 않는다 — 알리는 일은 연출 층이 전담한다(규칙 30, [com.inmc.achievements.claim.PayoutService]
+ * 가 가져오지 않는다). 그래서 [Editor] 가 `showAnnounce = false` 로 전환 칸과 ★ 줄을 숨긴다.
  */
-class RewardMenu(
-    ach: Achievements,
-    private val viewer: Player,
-    private val uid: String,
-    private val tierId: String?,
-    private val first: Boolean,
-) : Menu(ach, 54, Text.renderFlat("<dark_gray>보상</dark_gray>")) {
+object RewardMenu {
 
-    private fun bundle(): RewardBundle? {
+    fun open(ach: Achievements, viewer: Player, uid: String, tierId: String?, first: Boolean) {
+        val back = { TierEditMenu(ach, viewer, uid, tierId).open(viewer) }
+        // GUI 로 막 만든 단계 없는 업적은 single 이 아직 없다 — TierEditMenu 가 보여 주는 기본 단계를 먼저 적어 둔다.
+        // 아니면 번들이 없어 아무 말 없이 단계 화면으로 되돌아갔다(점수 같은 다른 값을 고쳐야 열렸다).
+        if (tierId == null) {
+            val item = ach.registry.byUid(uid)
+            if (item != null && item.single == null && !storeDefinition(ach, viewer, item.copy(single = Tier("1", item.goal)))) {
+                back(); return
+            }
+        }
+        val bundle = bundleOf(ach, uid, tierId, first) ?: run { back(); return }
+        // 이 번들이 아직 그 업적·단계의 것인가(규칙 46). 업적이 지워졌거나 서버 최초 보상을 껐다 켰으면 아니다.
+        val current = { edited: RewardBundle -> ach.registry.byUid(uid) != null && bundleOf(ach, uid, tierId, first) === edited }
+        Editor(
+            ach, viewer,
+            if (first) "<dark_gray>서버 최초 달성 보상</dark_gray>" else "<dark_gray>보상</dark_gray>",
+            bundle,
+            current = current,
+            save = { edited ->
+                val item = ach.registry.byUid(uid)
+                if (item != null && current(edited)) storeDefinition(ach, viewer, item) else stale(ach, viewer)
+            },
+            back = back,
+        ).show()
+    }
+
+    private fun bundleOf(ach: Achievements, uid: String, tierId: String?, first: Boolean): RewardBundle? {
         val item = ach.registry.byUid(uid) ?: return null
         val tier = if (tierId == null) item.single else item.tier(tierId)
         return if (first) tier?.firstOnServer?.rewards else tier?.rewards
     }
 
-    private fun save() {
-        val item = ach.registry.byUid(uid) ?: return
-        // 번들은 가변이라 그 자리에서 고쳐진다. 정의를 다시 넣어 dirty 로 찍기만 한다.
-        store(viewer, item)
+    /** 저장하지 않고 닫는다. 클릭 처리 도중이라 다음 틱에 닫는다 — 같은 틱에 닫으면 편집기가 이어서 다시 그린다. */
+    private fun stale(ach: Achievements, viewer: Player) {
+        ach.tell(viewer, "admin-editor-stale")
+        viewer.scheduler.run(ach.plugin, { _ -> viewer.closeInventory() }, null)
     }
 
-    override fun draw() {
-        clear()
-        val bundle = bundle() ?: run {
-            TierEditMenu(ach, viewer, uid, tierId).open(viewer); return
-        }
+    /** 명령어 입력창의 설명만 업적 규칙(`{플레이어}`)으로 바꾸고, 낡은 편집기의 클릭을 막는다. */
+    private class Editor(
+        private val ach: Achievements,
+        viewer: Player,
+        title: String,
+        bundle: RewardBundle,
+        private val current: (RewardBundle) -> Boolean,
+        save: (RewardBundle) -> Unit,
+        back: () -> Unit,
+    ) : RewardBundleEditor(ach, viewer, title, bundle, ach.itemResolver, save, back) {
+        override val commandHints: List<String> = listOf(
+            "<gray>한 줄에 하나, / 없이. 콘솔이 실행합니다.</gray>",
+            "<dark_gray>{플레이어} 가 받는 사람 이름으로 바뀝니다.</dark_gray>",
+        )
 
-        bundle.entries.forEachIndexed { index, entry ->
-            set(index, entryIcon(entry)) { event ->
-                if (event.isRightClick) {
-                    bundle.entries.removeAt(index)
-                    save()
-                    refresh()
-                }
+        // 공지는 연출 층이 전담한다(규칙 30) — 눌러도 아무 일 없는 전환을 보이지 않는다.
+        override val showAnnounce: Boolean get() = false
+
+        // 확인·지급 방식·제거를 누른 뒤에 저장 쪽에서 거르면 core 가 이어서 "등록했습니다" 를 말한다 — 누르기 전에 막는다.
+        // 올려 둔 아이템은 닫힐 때 편집기가 돌려준다.
+        override fun handleClick(event: InventoryClickEvent) {
+            if (current(bundle)) {
+                super.handleClick(event)
+                return
             }
+            event.isCancelled = true
+            stale(ach, viewer)
         }
-
-        set(SLOT_ADD_ITEM, Icon.of(Material.HOPPER, "<green>＋ 손에 든 아이템</green>", listOf(
-            "<gray>손에 든 것을 보상으로 넣습니다.</gray>",
-        ))) {
-            val held = viewer.inventory.itemInMainHand
-            if (held.type.isAir) return@set
-            bundle.entries.add(RewardEntry(item = ach.itemResolver.capture(held)))
-            save()
-            refresh()
-        }
-
-        set(SLOT_ADD_MONEY, Icon.of(Material.GOLD_INGOT, "<green>＋ 돈</green>")) {
-            promptInt(viewer, "<yellow>금액을 입력하세요.</yellow>", 1, Int.MAX_VALUE) { value ->
-                val add = { currency: String ->
-                    bundle.entries.add(RewardEntry(money = value.toDouble(), currency = currency))
-                    save()
-                    RewardMenu(ach, viewer, uid, tierId, first).open(viewer)
-                }
-                // 화폐가 여럿이면 고른다(사용자 결정 2026-10-08) — 하나뿐이면 묻지 않는다.
-                if (ach.economy.multiCurrency) {
-                    kr.inmc.core.gui.CurrencyPick.open(ach, viewer, "", back = { RewardMenu(ach, viewer, uid, tierId, first).open(viewer) }, onPick = add)
-                } else add("")
-            }
-        }
-
-        set(SLOT_ADD_COMMAND, Icon.of(Material.COMMAND_BLOCK, "<green>＋ 명령어</green>", listOf(
-            "<dark_gray>{플레이어} 가 이름으로 바뀝니다.</dark_gray>",
-        ))) {
-            prompt(viewer, "<yellow>명령어를 입력하세요. (/ 없이)</yellow>") { line ->
-                bundle.entries.add(RewardEntry(commands = mutableListOf(line.trim())))
-                save()
-                RewardMenu(ach, viewer, uid, tierId, first).open(viewer)
-            }
-        }
-
-        set(SLOT_MODE, Icon.of(Material.COMPARATOR, "<yellow>방식: " + bundle.mode.display + "</yellow>", listOf(
-            "<gray>" + bundle.mode.help + "</gray>",
-        ))) { event ->
-            bundle.mode = Editors.cycle(event, GiveMode.entries.toList(), bundle.mode)
-            save()
-            refresh()
-        }
-
-        set(SLOT_BACK, Icon.back()) { TierEditMenu(ach, viewer, uid, tierId).open(viewer) }
-        set(SLOT_CLOSE, Icon.close()) { viewer.closeInventory() }
-    }
-
-    private fun entryIcon(entry: RewardEntry) = Icon.of(
-        entry.item?.material ?: if (entry.money > 0) Material.GOLD_INGOT else Material.COMMAND_BLOCK,
-        "<white>" + describe(entry) + "</white>",
-        listOf(
-            "<gray>확률: " + entry.chance + "%</gray>",
-            "", "<red>▶ 우클릭: 삭제</red>",
-        ),
-    )
-
-    private fun describe(entry: RewardEntry): String = when {
-        entry.item != null -> entry.item?.displayName ?: entry.item!!.material.name
-        entry.money > 0 -> "돈 " + String.format("%,.0f", entry.money) + (if (entry.currency.isNotBlank()) " · " + ach.economy.currencyName(entry.currency) else "")
-        entry.commands.isNotEmpty() -> entry.commands.first().take(30)
-        else -> "(비어 있음)"
-    }
-
-    private companion object {
-        const val SLOT_ADD_ITEM = 45
-        const val SLOT_ADD_MONEY = 46
-        const val SLOT_ADD_COMMAND = 47
-        const val SLOT_MODE = 49
-        const val SLOT_BACK = 52
-        const val SLOT_CLOSE = 53
     }
 }

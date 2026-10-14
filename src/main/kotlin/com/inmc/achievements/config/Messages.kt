@@ -50,6 +50,7 @@ class Messages(values: Map<String, String>) : MessageCatalog<Ph>(values, DEFAULT
             "admin-delete-blocked" to "<red>'{업적}' 을(를) 가리키는 업적이 있어 지울 수 없습니다: {사유}</red>",
             "admin-exists" to "<red>'{업적}' 은(는) 이미 있습니다.</red>",
             "admin-invalid-id" to "<red>이름이 올바르지 않습니다. {사유}</red>",
+            "admin-editor-stale" to "<red>다른 곳에서 바뀌어 저장하지 않았습니다. 다시 여세요.</red>",
             "admin-granted" to "<green>{플레이어} 님에게 '{업적}' 을(를) 지급했습니다.</green>",
             "admin-revoked" to "<yellow>{플레이어} 님의 '{업적}' 기록을 지웠습니다.</yellow>",
             "admin-reset" to "<yellow>{플레이어} 님의 업적 데이터를 초기화했습니다. (달성 {진행도}단계)</yellow>",

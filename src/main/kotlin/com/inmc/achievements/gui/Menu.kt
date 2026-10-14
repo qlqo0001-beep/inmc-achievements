@@ -24,16 +24,8 @@ abstract class Menu(
      * 이 검사가 없으면 GUI 로 만든 무효 상태(같은 임계값 둘, 단계가 생긴 '발견 즉시 달성',
      * 선행 조건 순환)가 그대로 저장되고, 다음 리로드에서 그 업적이 목록에서 사라진다.
      */
-    protected fun store(viewer: Player, value: com.inmc.achievements.achievement.Achievement): Boolean {
-        val problem = ach.registry.put(value)
-        if (problem != null) {
-            ach.tell(viewer, "admin-invalid-id", ach.ph().reason(problem.describe))
-            return false
-        }
-        ach.registry.flush()
-        ach.service.reindex()
-        return true
-    }
+    protected fun store(viewer: Player, value: com.inmc.achievements.achievement.Achievement): Boolean =
+        storeDefinition(ach, viewer, value)
 
     /**
      * 채팅으로 값을 묻는다. **취소하면 이 화면으로 돌아온다.**
@@ -59,4 +51,16 @@ abstract class Menu(
             ach.prompts, viewer, label, min, max, { open(viewer) }, onValue,
         )
     }
+}
+
+/** [Menu.store] 의 본문 — 이 [Menu] 가 아닌 core 화면(보상 편집기 [RewardMenu])도 같은 검사를 지나게 밖에 둔다. */
+internal fun storeDefinition(ach: Achievements, viewer: Player, value: com.inmc.achievements.achievement.Achievement): Boolean {
+    val problem = ach.registry.put(value)
+    if (problem != null) {
+        ach.tell(viewer, "admin-invalid-id", ach.ph().reason(problem.describe))
+        return false
+    }
+    ach.registry.flush()
+    ach.service.reindex()
+    return true
 }
